@@ -5,7 +5,8 @@ setup(
     version="1.0",
     packages=find_packages(),
     install_requires=[
-        "pandas", "joblib",  # add other deps here
+        "pyhmmer==0.10.11",
+        "pandas==2.2.3",
     ],
     entry_points={
         'console_scripts': [

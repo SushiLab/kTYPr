@@ -194,8 +194,8 @@ def prepare_input(inFile, outDir, prefix=None, extract_annotations=True, n_jobs=
             for path in input_paths:
                 f.write(path + "\n")
 
-        faa_o = os.path.join(basedir, f"{prefix}{ide}_faa")
-        gff_o = os.path.join(basedir, f"{prefix}{ide}_gff")
+        faa_o = os.path.join(outDir, f"{prefix}{ide}_faa")
+        gff_o = os.path.join(outDir, f"{prefix}{ide}_gff")
         os.makedirs(faa_o, exist_ok=True)
         os.makedirs(gff_o, exist_ok=True)
 
@@ -207,7 +207,7 @@ def prepare_input(inFile, outDir, prefix=None, extract_annotations=True, n_jobs=
 
         print(f"{ide} done extracting annotations!")
 
-        annotations_list = os.path.join(basedir, "fetch_annotations.txt")
+        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
         cmd = f'/nfs/home/smiravet/KTYPS_DEV/code/sh_utils/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
         os.system(cmd)
 

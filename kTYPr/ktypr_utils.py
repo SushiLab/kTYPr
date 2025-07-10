@@ -10,12 +10,22 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqFeature import FeatureLocation
 from pathlib import Path
+import zipfile
 
 ### GLOBAL VARIABLES
-orf_finder = pyrodigal.GeneFinder(meta=True)
-orf_finder = pyrodigal.GeneFinder()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 ### I/O
+
+def set_pyrodigal_model(records, meta=False):
+    """ Sets up the Pyrodigal gene finder model based on the provided records."""
+    if meta:
+        orf_finder = pyrodigal.GeneFinder(meta=True)
+    else:
+        full_genome_seq = b''.join([bytes(record.seq) for record in records])  # Concatenate all sequences into one byte string
+        orf_finder = pyrodigal.GeneFinder()
+        orf_finder.train(full_genome_seq)
+    return orf_finder
 
 def get_faa_and_gff(fil, outDir_faa, outDir_gff):
     """ Runs prodigal on a genome file. It accepts both compressed (as gz) and uncompressed fasta files """
@@ -29,12 +39,14 @@ def get_faa_and_gff(fil, outDir_faa, outDir_gff):
     if fil.endswith('.gz'):
         with gzip.open(fil, "rt") as fil:
             records = SeqIO.parse(fil, "fasta")
+            orf_finder = set_pyrodigal_model(records, meta=False)
             for i, record in enumerate(records):
                 genes = orf_finder.find_genes(bytes(record.seq))
                 genes.write_gff(gfo, sequence_id=f'{ide}__{record.id}', header=(i == 0))     # Do not include header 
                 genes.write_translations(ffo, sequence_id=f'{ide}__{record.id}')
     else:
         records = SeqIO.parse(fil, "fasta")
+        orf_finder = set_pyrodigal_model(records, meta=False)
         for i, record in enumerate(records):
             genes = orf_finder.find_genes(bytes(record.seq))
             genes.write_gff(gfo, sequence_id=f'{ide}__{record.id}', header=(i == 0))     # Do not include header 
@@ -42,18 +54,6 @@ def get_faa_and_gff(fil, outDir_faa, outDir_gff):
     
     ffo.close()
     gfo.close()
-
-
-def get_faa(fil, outDir):
-    """ Get translated sequences in fasta format using pyrodigal """
-
-    ide = fil.split('/')[-1].split('.')[0]
-    faa_basename = f'{outDir}/{ide}.faa'
-    records = SeqIO.parse(fil, "fasta")
-    with open(faa_basename, 'w') as fo:
-        for record in records:
-            genes = orf_finder.find_genes(bytes(record.seq))
-            genes.write_translations(fo, sequence_id=f'{ide}__{record.id}')
 
 
 def get_ann_dict_from_fasta(fasta_file):
@@ -68,7 +68,6 @@ def get_ann_dict_from_gff(gff_file):
     df = pd.read_csv(gff_file, comment='#', sep='\t', header=None, usecols=[0, 3, 4, 6, 8])
     df[0] = df[8].str.extract(r'ID=([^;]+)')[0]
     return df.set_index(df.columns[0]).apply(lambda row: row[0:3].tolist(), axis=1).to_dict()
-
 
 
 def subset_fasta(fasta_file, id_list, out_file=None):
@@ -104,7 +103,7 @@ def subset_flanking(fasta_file, gene_id, gff_file=None, flank=30000, out_file=No
 
 ### 
 
-def split_multigenbank_to_faa_and_gff(input_genbank, output_dir, ide='gladstone'):
+def split_multigenbank_to_faa_and_gff(input_genbank,  outDir_faa, outDir_gff):
     """
     Splits a multi-GenBank file into individual genome files and extracts:
     - A `.faa` file with the CDS (coding sequences) in protein format.
@@ -115,16 +114,13 @@ def split_multigenbank_to_faa_and_gff(input_genbank, output_dir, ide='gladstone'
         output_dir (str): Path to the directory to store output files.
     """
     # Create output directories for faa and gff
-    output_dir = Path(output_dir)
-    faa_dir = output_dir / f"{ide}_faa"
-    gff_dir = output_dir / f"{ide}_gff"
-    faa_dir.mkdir(parents=True, exist_ok=True)
-    gff_dir.mkdir(parents=True, exist_ok=True)
+    outDir_faa.mkdir(parents=True, exist_ok=True)
+    outDir_gff.mkdir(parents=True, exist_ok=True)
 
     for record in SeqIO.parse(input_genbank, "genbank"):
         genome_id = record.name
-        faa_file = faa_dir / f"{genome_id}.faa"
-        gff_file = gff_dir / f"{genome_id}.gff"
+        faa_file = outDir_faa / f"{genome_id}.faa"
+        gff_file = outDir_gff / f"{genome_id}.gff"
 
         with open(faa_file, "w") as faa_out, open(gff_file, "w") as gff_out:
             # Write GFF header
@@ -158,7 +154,18 @@ def split_multigenbank_to_faa_and_gff(input_genbank, output_dir, ide='gladstone'
 
 # I/O
 
-def prepare_input(inFile, outDir, prefix=None, extract_annotations=True, n_jobs=30):
+def process_genome_file(genome_path, outDir_faa, outDir_gff):
+    genome_path = Path(genome_path)
+    if genome_path.suffix in {".gb", ".gbk", ".gbff"}:
+        # GenBank format
+        split_multigenbank_to_faa_and_gff(str(genome_path), outDir_faa, outDir_gff)
+    elif genome_path.suffix in {".fna", ".fa", ".fasta"}:
+        # FASTA format
+        get_faa_and_gff(str(genome_path), outDir_faa=outDir_faa, outDir_gff=outDir_gff)
+    else:
+        print(f"Unknown file format for {genome_path}, skipping.")
+
+def prepare_input(inFile, outDir, prefix='', extract_annotations=True, n_jobs=30):
     """
     Prepares a list of annotation files from the given input:
     - If input is annotations (.faa), return directly.
@@ -201,14 +208,14 @@ def prepare_input(inFile, outDir, prefix=None, extract_annotations=True, n_jobs=
 
         # Run gene calling
         Parallel(n_jobs=n_jobs)(
-            delayed(get_faa_and_gff)(genome_path, outDir_faa=faa_o, outDir_gff=gff_o, prefix=prefix)
+            delayed(process_genome_file)(genome_path, outDir_faa=faa_o, outDir_gff=gff_o)
             for genome_path in input_paths
         )
 
         print(f"{ide} done extracting annotations!")
 
         annotations_list = os.path.join(outDir, "fetch_annotations.txt")
-        cmd = f'/nfs/home/smiravet/KTYPS_DEV/code/sh_utils/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
+        cmd = f'{SCRIPT_DIR}/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
         os.system(cmd)
 
         with open(annotations_list) as f:
@@ -216,6 +223,21 @@ def prepare_input(inFile, outDir, prefix=None, extract_annotations=True, n_jobs=
 
     else:
         raise ValueError("Input does not appear to be annotations, and annotation extraction is disabled.")
+
+# CLINKER 
+
+def get_clinker(outDir, ks_to_extract):
+    """
+    Extract specific K-antigen clusters from a zipped archive of genbanks that can be then used with Clinker. 
+    ks_to_extract is a set of substrings to search for in the filenames (eg. {"K1_", "K2_"}). 
+    """
+
+    archive_path = f"{SCRIPT_DIR}/data/clinker_clusters.zip"
+    with zipfile.ZipFile(archive_path, 'r') as zipf:
+        for file in zipf.namelist():
+            if any(ks in file for ks in ks_to_extract):
+                zipf.extract(file, path=outDir)
+                print(f"Extracted: {file}")
 
 
 

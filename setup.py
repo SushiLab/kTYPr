@@ -1,6 +1,13 @@
 from setuptools import setup
+
 # Dependencies and other variables
-install_requires = ["pyhmmer==0.10.11", "pandas==2.2.3"]
+install_requires = [
+    "pyhmmer==0.10.11",
+    "pandas==2.2.3",
+    "pyrodigal==3.4.1",
+    "clinker"
+]
+
 long_description = read('README.md')
 
 setup(

@@ -1,0 +1,1 @@
+/nfs/home/smiravet/kTYPr/test/genomes/fasta/GCF_000009565.1_ASM956v1_genomic.fa

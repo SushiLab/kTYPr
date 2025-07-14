@@ -12,6 +12,7 @@ from Bio.SeqFeature import FeatureLocation
 from pathlib import Path
 import zipfile
 
+
 ### GLOBAL VARIABLES
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -102,10 +103,7 @@ def subset_flanking(fasta_file, gene_id, gff_file=None, flank=30000, out_file=No
     subset_fasta(fasta_file, set(flank_ides), out_file)
 
 ### 
-from pathlib import Path
-from Bio import SeqIO
-from Bio.SeqRecord import SeqRecord
-import pyrodigal
+
 
 def set_pyrodigal_model(records, meta=False):
     """ Sets up the Pyrodigal gene finder model based on the provided records."""
@@ -142,10 +140,8 @@ def split_multigenbank_to_faa_and_gff(input_genbank, outDir_faa, outDir_gff, rea
     # Set up Pyrodigal only once if needed
     orf_finder = None
     if reannotate or any(not any(f.type == "CDS" for f in rec.features) for rec in records):
-        import pyrodigal
-        from your_module import set_pyrodigal_model  # replace with your actual import
         orf_finder = set_pyrodigal_model(records, meta=meta)
-
+    
     for i, record in enumerate(records):
         genome_id = record.name
         faa_file = outDir_faa / f"{genome_id}.faa"
@@ -254,6 +250,49 @@ def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotat
         raise ValueError("Input does not appear to be annotations, and annotation extraction is disabled.")
     
     return annotations_list
+
+from BCBio import GFF
+
+def create_genbank_from_inputs(input_file, gff_file, genome_fasta, selected_ids, output_genbank, id_attribute="ID", from_annotations=False):
+    """
+    Create a GenBank file with selected genes from either:
+    - annotations (.faa): builds CDS-only GenBank
+    - genome input (.fa/.gb + .gff): builds full GenBank with selected features
+
+    Args:
+        input_file (str): Path to the .faa or genome input file.
+        gff_file (str): Path to the .gff file (required if from_annotations=False).
+        genome_fasta (str): Path to genome fasta file (required if from_annotations=False).
+        selected_ids (list): List of gene IDs to keep (e.g., locus_tag or ID).
+        output_genbank (str): Path to the output GenBank file.
+        id_attribute (str): Qualifier to use for matching (e.g., 'ID', 'locus_tag').
+        from_annotations (bool): If True, assume input_file is a .faa file and make CDS-only GenBank.
+    """
+    output_genbank = Path(output_genbank)
+
+    if from_annotations:
+        # From .faa input → CDS-only GenBank
+        records = list(SeqIO.parse(input_file, "fasta"))
+        filtered_records = [r for r in records if any(gid in r.id for gid in selected_ids)]
+        for r in filtered_records:
+            r.seq.alphabet = None  # Remove alphabet warnings
+        SeqIO.write(filtered_records, output_genbank, "genbank")
+
+    else:
+        # From genome + GFF → Full GenBank with filtered annotations
+        fasta_dict = SeqIO.to_dict(SeqIO.parse(genome_fasta, "fasta"))
+
+        with open(gff_file) as gff_handle:
+            records = list(GFF.parse(gff_handle, base_dict=fasta_dict))
+
+        for record in records:
+            record.features = [
+                f for f in record.features
+                if id_attribute in f.qualifiers and any(gid in f.qualifiers[id_attribute] for gid in selected_ids)
+            ]
+
+        SeqIO.write(records, output_genbank, "genbank")
+
 
 
 # CLINKER 

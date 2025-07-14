@@ -198,46 +198,22 @@ def run_on_collection(inFile,
                                                                                 append=append_fil, 
                                                                                 _rfbBDAC=_rfbBDAC) for fil in fils)
 
-def ktypr_main(inFile, outDir, collection_id, collection_folder=None, 
-               flanking=False, flank=30000, multi=False, _rfbBDAC=False, 
-               parallel=True, n_jobs=10, redo=1, test=False):
+def run_ktypr(inFile, outDir, collection_id, collection_folder=None, 
+              flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 
+              parallel=True, n_jobs=10, redo=1, test=False):
     """
     Main function to run ktypr on a collection of genomes
     """
-    run_on_collection(inFile, outDir, collection_id, collection_folder,
+    # Prepare input
+    print(f'Preparing {inFile}...')
+    fetch_file = ku.prepare_input(inFile, outDir=outDir, prefix=collection_id, reannotate=reannotate, extract_annotations=True, n_jobs=n_jobs)
+    print(f'Running kTYPr on {fetch_file}...')
+
+    run_on_collection(fetch_file, outDir, collection_id, collection_folder,
                       flanking=flanking, flank=flank, multi=multi,
                       _rfbBDAC=_rfbBDAC,
                       parallel=parallel, n_jobs=n_jobs, redo=redo, test=test)
+                      
 
 if __name__ == "__main__":
-
-    fils = glob.glob('/nfs/home/smiravet/KTYPS_DEV/scratch/raw/*/fetch_annotations.txt')
-
-    torun = ['gladstone', 'fastkaptive', 'kref10', 'bioinforef', 'refseq37', 'ncbi', 'egli', 'barn', 'kref']
-    torun = ['sands', 'nuin']
-    torun = ['galardini', 'botnar', 'colibafi', 'coliville', 'ecoref', 'lbc', 'roar', 'septicoli', 'touchon']
-    torun = ['commensal']	
-    torun = ['picard']
-    torun = ['hong']
-
-    for fil in fils[::-1]:
-        ide = fil.split('/raw/')[-1].split('/')[0]
-        print(ide)
-        if ide in torun:
-            print(ide, ' running')
-            if ide=='fastkaptive' or ide=='gladstone' or ide=='barn' or ide=='egli':
-                # Only wg
-                run_on_collection(f'/nfs/home/smiravet/KTYPS_DEV/scratch/raw/{ide}/fetch_annotations.txt', 
-                                  outDir=f'/nfs/home/smiravet/KTYPS_DEV/scratch/processed/{ide}/{ide}_flank/',
-                                  collection_id=f'{ide}_flank', collection_folder='/nfs/home/smiravet/KTYPS_DEV/scratch/to_report/wg_flank_v2',  n_jobs=25)
-                print(ide, ' flank by default run!')
-            else:
-                run_on_collection(f'/nfs/home/smiravet/KTYPS_DEV/scratch/raw/{ide}/fetch_annotations.txt', 
-                                  outDir=f'/nfs/home/smiravet/KTYPS_DEV/scratch/processed/{ide}/{ide}_flank/',
-                                  multi=True, flanking=True, 
-                                  collection_id=f'{ide}_flank', collection_folder='/nfs/home/smiravet/KTYPS_DEV/scratch/to_report/wg_flank_v2',  n_jobs=25)
-                print(ide, ' flanking run!')
-                run_on_collection(f'/nfs/home/smiravet/KTYPS_DEV/scratch/raw/{ide}/fetch_annotations.txt', 
-                                  outDir=f'/nfs/home/smiravet/KTYPS_DEV/scratch/processed/{ide}/{ide}_wg/',
-                                  collection_id=f'{ide}_wg', collection_folder='/nfs/home/smiravet/KTYPS_DEV/scratch/to_report/wg_flank_v2',  n_jobs=25)
-                print(ide, ' wg run!')
+    a = 2

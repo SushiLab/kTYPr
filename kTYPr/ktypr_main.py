@@ -198,6 +198,17 @@ def run_on_collection(inFile,
                                                                                 append=append_fil, 
                                                                                 _rfbBDAC=_rfbBDAC) for fil in fils)
 
+def ktypr_main(inFile, outDir, collection_id, collection_folder=None, 
+               flanking=False, flank=30000, multi=False, _rfbBDAC=False, 
+               parallel=True, n_jobs=10, redo=1, test=False):
+    """
+    Main function to run ktypr on a collection of genomes
+    """
+    run_on_collection(inFile, outDir, collection_id, collection_folder,
+                      flanking=flanking, flank=flank, multi=multi,
+                      _rfbBDAC=_rfbBDAC,
+                      parallel=parallel, n_jobs=n_jobs, redo=redo, test=test)
+
 if __name__ == "__main__":
 
     fils = glob.glob('/nfs/home/smiravet/KTYPS_DEV/scratch/raw/*/fetch_annotations.txt')

@@ -33,6 +33,10 @@ def parse_args():
                         help="Optional prefix to add to output file names. By default, use the genome/annotation file basename"
     )
 
+    parser.add_argument("-r", "--reannotate", action="store_true",
+                        help="Reannotate genes using Prodigal, even if annotations are present in the GenBank file."
+    )
+    
     return parser.parse_args()
 
 def main():

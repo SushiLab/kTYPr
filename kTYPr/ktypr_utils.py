@@ -22,12 +22,12 @@ def set_pyrodigal_model(records, meta=False):
     if meta:
         orf_finder = pyrodigal.GeneFinder(meta=True)
     else:
-        full_genome_seq = b''.join([bytes(record.seq) for record in records])  # Concatenate all sequences into one byte string
+        full_genome_seq = b''.join([bytes(record.seq) for record in records])
         orf_finder = pyrodigal.GeneFinder()
         orf_finder.train(full_genome_seq)
     return orf_finder
 
-def get_faa_and_gff(fil, outDir_faa, outDir_gff):
+def get_faa_and_gff(fil, outDir_faa, outDir_gff, meta=False):
     """ Runs prodigal on a genome file. It accepts both compressed (as gz) and uncompressed fasta files """
 
     ide = fil.split('/')[-1].split('.')[0]
@@ -37,20 +37,20 @@ def get_faa_and_gff(fil, outDir_faa, outDir_gff):
     gfo = open(gff_basename, "w")
 
     if fil.endswith('.gz'):
-        with gzip.open(fil, "rt") as fil:
-            records = SeqIO.parse(fil, "fasta")
-            orf_finder = set_pyrodigal_model(records, meta=False)
-            for i, record in enumerate(records):
-                genes = orf_finder.find_genes(bytes(record.seq))
-                genes.write_gff(gfo, sequence_id=f'{ide}__{record.id}', header=(i == 0))     # Do not include header 
-                genes.write_translations(ffo, sequence_id=f'{ide}__{record.id}')
+        with gzip.open(fil, "rt") as f:
+            records = list(SeqIO.parse(f, "fasta"))  # <-- List once
     else:
-        records = SeqIO.parse(fil, "fasta")
-        orf_finder = set_pyrodigal_model(records, meta=False)
-        for i, record in enumerate(records):
-            genes = orf_finder.find_genes(bytes(record.seq))
-            genes.write_gff(gfo, sequence_id=f'{ide}__{record.id}', header=(i == 0))     # Do not include header 
-            genes.write_translations(ffo, sequence_id=f'{ide}__{record.id}')
+        with open(fil, "rt") as f:
+            records = list(SeqIO.parse(f, "fasta"))
+
+    print(f'Processing {ide} with {len(records)} records')
+
+    orf_finder = set_pyrodigal_model(records, meta=meta)    
+    for i, record in enumerate(records):  # reuse list
+        print(i, ide)
+        genes = orf_finder.find_genes(bytes(record.seq))
+        genes.write_gff(gfo, sequence_id=f'{ide}__{record.id}', header=(i == 0))
+        genes.write_translations(ffo, sequence_id=f'{ide}__{record.id}')
     
     ffo.close()
     gfo.close()
@@ -102,22 +102,51 @@ def subset_flanking(fasta_file, gene_id, gff_file=None, flank=30000, out_file=No
     subset_fasta(fasta_file, set(flank_ides), out_file)
 
 ### 
+from pathlib import Path
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+import pyrodigal
 
-def split_multigenbank_to_faa_and_gff(input_genbank,  outDir_faa, outDir_gff):
+def set_pyrodigal_model(records, meta=False):
+    """ Sets up the Pyrodigal gene finder model based on the provided records."""
+    if meta:
+        return pyrodigal.GeneFinder(meta=True)
+    else:
+        full_genome_seq = b''.join([bytes(record.seq) for record in records])
+        orf_finder = pyrodigal.GeneFinder()
+        orf_finder.train(full_genome_seq)
+        return orf_finder
+
+def split_multigenbank_to_faa_and_gff(input_genbank, outDir_faa, outDir_gff, reannotate=False, meta=False):
     """
     Splits a multi-GenBank file into individual genome files and extracts:
     - A `.faa` file with the CDS (coding sequences) in protein format.
     - A `.gff` file with annotations for the genes.
-    
+
+    If reannotate is True or if no CDS are found in a record, Pyrodigal will be used to predict genes.
+
     Args:
         input_genbank (str): Path to the multi-GenBank file.
-        output_dir (str): Path to the directory to store output files.
+        outDir_faa (str): Path to the directory to store .faa files.
+        outDir_gff (str): Path to the directory to store .gff files.
+        reannotate (bool): Whether to reannotate with Pyrodigal.
+        meta (bool): Whether to use metagenomic mode for Pyrodigal.
     """
-    # Create output directories for faa and gff
+    outDir_faa = Path(outDir_faa)
+    outDir_gff = Path(outDir_gff)
     outDir_faa.mkdir(parents=True, exist_ok=True)
     outDir_gff.mkdir(parents=True, exist_ok=True)
 
-    for record in SeqIO.parse(input_genbank, "genbank"):
+    records = list(SeqIO.parse(input_genbank, "genbank"))
+
+    # Set up Pyrodigal only once if needed
+    orf_finder = None
+    if reannotate or any(not any(f.type == "CDS" for f in rec.features) for rec in records):
+        import pyrodigal
+        from your_module import set_pyrodigal_model  # replace with your actual import
+        orf_finder = set_pyrodigal_model(records, meta=meta)
+
+    for i, record in enumerate(records):
         genome_id = record.name
         faa_file = outDir_faa / f"{genome_id}.faa"
         gff_file = outDir_gff / f"{genome_id}.gff"
@@ -126,24 +155,26 @@ def split_multigenbank_to_faa_and_gff(input_genbank,  outDir_faa, outDir_gff):
             # Write GFF header
             gff_out.write("##gff-version 3\n")
             gff_out.write(f"##sequence-region {genome_id} 1 {len(record)}\n")
-            
-            for feature in record.features:
-                if feature.type == "CDS":
-                    # Extract nucleotide sequence of CDS
+
+            cds_features = [f for f in record.features if f.type == "CDS"]
+
+            if reannotate or not cds_features:
+                # Run Pyrodigal gene prediction
+                genes = orf_finder.find_genes(bytes(record.seq))
+                genes.write_gff(gff_out, sequence_id=genome_id, header=False)
+                genes.write_translations(faa_out, sequence_id=genome_id)
+            else:
+                for feature in cds_features:
                     cds_seq = feature.extract(record.seq)
-                    
-                    # Translate CDS to protein
                     protein_seq = cds_seq.translate(to_stop=True)
-                    
-                    # Create a protein record for the .faa file
+
                     protein_id = feature.qualifiers.get("locus_tag", ["unknown"])[0]
                     gene_id = feature.qualifiers.get("gene", ["unknown"])[0]
 
-                    faa_record = SeqRecord(protein_seq, id=gene_id+'_'+protein_id, description="")
+                    faa_record = SeqRecord(protein_seq, id=gene_id + '_' + protein_id, description="")
                     SeqIO.write(faa_record, faa_out, "fasta")
 
-                    # Write GFF line
-                    start = int(feature.location.start) + 1  # 1-based indexing
+                    start = int(feature.location.start) + 1
                     end = int(feature.location.end)
                     strand = "+" if feature.location.strand == 1 else "-"
                     attributes = f"ID={protein_id};"
@@ -151,21 +182,21 @@ def split_multigenbank_to_faa_and_gff(input_genbank,  outDir_faa, outDir_gff):
                         attributes += f"product={feature.qualifiers['product'][0]};"
                     gff_line = f"{genome_id}\tGenBank\tCDS\t{start}\t{end}\t.\t{strand}\t0\t{attributes}\n"
                     gff_out.write(gff_line)
-
+                    
 # I/O
 
-def process_genome_file(genome_path, outDir_faa, outDir_gff):
+def process_genome_file(genome_path, outDir_faa, outDir_gff, reannotate=False):
     genome_path = Path(genome_path)
     if genome_path.suffix in {".gb", ".gbk", ".gbff"}:
         # GenBank format
-        split_multigenbank_to_faa_and_gff(str(genome_path), outDir_faa, outDir_gff)
+        split_multigenbank_to_faa_and_gff(str(genome_path), outDir_faa, outDir_gff, reannotate=reannotate)
     elif genome_path.suffix in {".fna", ".fa", ".fasta"}:
         # FASTA format
         get_faa_and_gff(str(genome_path), outDir_faa=outDir_faa, outDir_gff=outDir_gff)
     else:
         print(f"Unknown file format for {genome_path}, skipping.")
 
-def prepare_input(inFile, outDir, prefix='', extract_annotations=True, n_jobs=30):
+def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotate=False, n_jobs=30):
     """
     Prepares a list of annotation files from the given input:
     - If input is annotations (.faa), return directly.
@@ -190,16 +221,20 @@ def prepare_input(inFile, outDir, prefix='', extract_annotations=True, n_jobs=30
 
     # If they are all .faa files, we assume annotations are already provided
     if all(path.endswith(".faa") for path in input_paths):
-        return input_paths
+        # List them in the same file
+        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
+        with open(annotations_list, "w") as f:
+            for path in input_paths:
+                f.write(path + "\n")
 
     elif extract_annotations:
         basedir = os.path.dirname(os.path.abspath(inFile))
         ide = os.path.basename(basedir)
 
-        fetch_txt_path = os.path.join(basedir, "fetch.txt")
-        with open(fetch_txt_path, "w") as f:
-            for path in input_paths:
-                f.write(path + "\n")
+        # fetch_txt_path = os.path.join(basedir, "fetch.txt")
+        # with open(fetch_txt_path, "w") as f:
+        #     for path in input_paths:
+        #         f.write(path + "\n")
 
         faa_o = os.path.join(outDir, f"{prefix}{ide}_faa")
         gff_o = os.path.join(outDir, f"{prefix}{ide}_gff")
@@ -208,21 +243,18 @@ def prepare_input(inFile, outDir, prefix='', extract_annotations=True, n_jobs=30
 
         # Run gene calling
         Parallel(n_jobs=n_jobs)(
-            delayed(process_genome_file)(genome_path, outDir_faa=faa_o, outDir_gff=gff_o)
+            delayed(process_genome_file)(genome_path, outDir_faa=faa_o, outDir_gff=gff_o, reannotate=reannotate)
             for genome_path in input_paths
         )
-
-        print(f"{ide} done extracting annotations!")
 
         annotations_list = os.path.join(outDir, "fetch_annotations.txt")
         cmd = f'{SCRIPT_DIR}/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
         os.system(cmd)
-
-        with open(annotations_list) as f:
-            return [line.strip() for line in f if line.strip()]
-
     else:
         raise ValueError("Input does not appear to be annotations, and annotation extraction is disabled.")
+    
+    return annotations_list
+
 
 # CLINKER 
 

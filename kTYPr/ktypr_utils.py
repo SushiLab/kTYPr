@@ -108,8 +108,10 @@ def subset_flanking(fasta_file, gene_id, gff_file=None, flank=30000, out_file=No
 def set_pyrodigal_model(records, meta=False):
     """ Sets up the Pyrodigal gene finder model based on the provided records."""
     if meta:
+        print("Setting up Pyrodigal in metagenomic mode")
         return pyrodigal.GeneFinder(meta=True)
     else:
+        print("Setting up Pyrodigal in genomic mode")
         full_genome_seq = b''.join([bytes(record.seq) for record in records])
         orf_finder = pyrodigal.GeneFinder()
         orf_finder.train(full_genome_seq)
@@ -181,18 +183,18 @@ def split_multigenbank_to_faa_and_gff(input_genbank, outDir_faa, outDir_gff, rea
                     
 # I/O
 
-def process_genome_file(genome_path, outDir_faa, outDir_gff, reannotate=False):
+def process_genome_file(genome_path, outDir_faa, outDir_gff, reannotate=False, meta=False):
     genome_path = Path(genome_path)
     if genome_path.suffix in {".gb", ".gbk", ".gbff"}:
         # GenBank format
         split_multigenbank_to_faa_and_gff(str(genome_path), outDir_faa, outDir_gff, reannotate=reannotate)
     elif genome_path.suffix in {".fna", ".fa", ".fasta"}:
         # FASTA format
-        get_faa_and_gff(str(genome_path), outDir_faa=outDir_faa, outDir_gff=outDir_gff)
+        get_faa_and_gff(str(genome_path), outDir_faa=outDir_faa, outDir_gff=outDir_gff, meta=meta)
     else:
         print(f"Unknown file format for {genome_path}, skipping.")
 
-def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotate=False, n_jobs=30):
+def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotate=False, n_jobs=30, meta=False):
     """
     Prepares a list of annotation files from the given input:
     - If input is annotations (.faa), return directly.
@@ -239,7 +241,7 @@ def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotat
 
         # Run gene calling
         Parallel(n_jobs=n_jobs)(
-            delayed(process_genome_file)(genome_path, outDir_faa=faa_o, outDir_gff=gff_o, reannotate=reannotate)
+            delayed(process_genome_file)(genome_path, outDir_faa=faa_o, outDir_gff=gff_o, reannotate=reannotate, meta=meta)
             for genome_path in input_paths
         )
 
@@ -259,81 +261,81 @@ def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotat
 #SCRIPT_DIR = Path(__file__).resolve().parent  # Adjust this if SCRIPT_DIR is defined elsewhere
 #
 #def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotate=False, n_jobs=30):
-    """
-    Prepares a list of annotation files from the given input:
-    - If input is annotations (.faa), return directly.
-    - If input is genome files (FASTA/GenBank), extract annotations (optionally using a user-defined prefix).
-    
-    Returns:
-        annotations_list (str): Path to file listing all .faa annotation paths.
-        tracking_dict (dict): Dictionary with keys 'ides', 'path_faa', 'path_gff'
-    """
-    def resolve_paths(inFile):
-        if inFile.endswith(".txt"):
-            with open(inFile) as f:
-                return [line.strip() for line in f if line.strip()]
-        elif os.path.isdir(inFile):
-            extensions = ("*.fasta", "*.fa", "*.fna", "*.gb", "*.gbk", "*.faa")
-            files = []
-            for ext in extensions:
-                files.extend(glob.glob(os.path.join(inFile, ext)))
-            return sorted(files)
-        elif os.path.isfile(inFile):
-            return [inFile]
-        else:
-            raise ValueError(f"Invalid input: {inFile} is neither a file nor a directory.")
-
-    input_paths = resolve_paths(inFile)
-    tracking_dict = {'ides': [], 'path_faa': [], 'path_gff': []}
-
-    if all(path.endswith(".faa") for path in input_paths):
-        # Case: annotations already exist
-        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
-        with open(annotations_list, "w") as f:
-            for path in input_paths:
-                f.write(path + "\n")
-                ide = os.path.splitext(os.path.basename(path))[0]
-                tracking_dict['ides'].append(ide)
-                tracking_dict['path_faa'].append(path)
-                tracking_dict['path_gff'].append(None)
-
-    elif extract_annotations:
-        basedir = os.path.dirname(os.path.abspath(inFile))
-        ide = os.path.basename(basedir)
-
-        faa_o = os.path.join(outDir, f"{prefix}{ide}_faa")
-        gff_o = os.path.join(outDir, f"{prefix}{ide}_gff")
-        os.makedirs(faa_o, exist_ok=True)
-        os.makedirs(gff_o, exist_ok=True)
-
-        # Run gene calling
-        Parallel(n_jobs=n_jobs)(
-            delayed(process_genome_file)(
-                genome_path,
-                outDir_faa=faa_o,
-                outDir_gff=gff_o,
-                reannotate=reannotate
-            )
-            for genome_path in input_paths
-        )
-
-        # Track outputs
-        for genome_path in input_paths:
-            base = os.path.splitext(os.path.basename(genome_path))[0]
-            faa_file = os.path.join(faa_o, base + ".faa")
-            gff_file = os.path.join(gff_o, base + ".gff")
-            tracking_dict['ides'].append(base)
-            tracking_dict['path_faa'].append(faa_file)
-            tracking_dict['path_gff'].append(gff_file)
-
-        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
-        cmd = f'{SCRIPT_DIR}/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
-        os.system(cmd)
-
-    else:
-        raise ValueError("Input does not appear to be annotations, and annotation extraction is disabled.")
-    
-    return annotations_list, tracking_dict
+#    """
+#    Prepares a list of annotation files from the given input:
+#    - If input is annotations (.faa), return directly.
+#    - If input is genome files (FASTA/GenBank), extract annotations (optionally using a user-defined prefix).
+#    
+#    Returns:
+#        annotations_list (str): Path to file listing all .faa annotation paths.
+#        tracking_dict (dict): Dictionary with keys 'ides', 'path_faa', 'path_gff'
+#    """
+#    def resolve_paths(inFile):
+#        if inFile.endswith(".txt"):
+#            with open(inFile) as f:
+#                return [line.strip() for line in f if line.strip()]
+#        elif os.path.isdir(inFile):
+#            extensions = ("*.fasta", "*.fa", "*.fna", "*.gb", "*.gbk", "*.faa")
+#            files = []
+#            for ext in extensions:
+#                files.extend(glob.glob(os.path.join(inFile, ext)))
+#            return sorted(files)
+#        elif os.path.isfile(inFile):
+#            return [inFile]
+#        else:
+#            raise ValueError(f"Invalid input: {inFile} is neither a file nor a directory.")
+#
+#    input_paths = resolve_paths(inFile)
+#    tracking_dict = {'ides': [], 'path_faa': [], 'path_gff': []}
+#
+#    if all(path.endswith(".faa") for path in input_paths):
+#        # Case: annotations already exist
+#        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
+#        with open(annotations_list, "w") as f:
+#            for path in input_paths:
+#                f.write(path + "\n")
+#                ide = os.path.splitext(os.path.basename(path))[0]
+#                tracking_dict['ides'].append(ide)
+#                tracking_dict['path_faa'].append(path)
+#                tracking_dict['path_gff'].append(None)
+#
+#    elif extract_annotations:
+#        basedir = os.path.dirname(os.path.abspath(inFile))
+#        ide = os.path.basename(basedir)
+#
+#        faa_o = os.path.join(outDir, f"{prefix}{ide}_faa")
+#        gff_o = os.path.join(outDir, f"{prefix}{ide}_gff")
+#        os.makedirs(faa_o, exist_ok=True)
+#        os.makedirs(gff_o, exist_ok=True)
+#
+#        # Run gene calling
+#        Parallel(n_jobs=n_jobs)(
+#            delayed(process_genome_file)(
+#                genome_path,
+#                outDir_faa=faa_o,
+#                outDir_gff=gff_o,
+#                reannotate=reannotate
+#            )
+#            for genome_path in input_paths
+#        )
+#
+#        # Track outputs
+#        for genome_path in input_paths:
+#            base = os.path.splitext(os.path.basename(genome_path))[0]
+#            faa_file = os.path.join(faa_o, base + ".faa")
+#            gff_file = os.path.join(gff_o, base + ".gff")
+#            tracking_dict['ides'].append(base)
+#            tracking_dict['path_faa'].append(faa_file)
+#            tracking_dict['path_gff'].append(gff_file)
+#
+#        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
+#        cmd = f'{SCRIPT_DIR}/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
+#        os.system(cmd)
+#
+#    else:
+#        raise ValueError("Input does not appear to be annotations, and annotation extraction is disabled.")
+#    
+#    return annotations_list, tracking_dict
 #
 #
 

@@ -16,6 +16,9 @@ definition_path  = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512
 cutoffs_path     = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
 kpsc_hmm_path    = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
 
+definition_path = '/nfs/home/smiravet/KTYPS_DEV/data/kTYP_definitions_v241202.tsv'
+cutoffs_path = '/nfs/home/smiravet/KTYPS_DEV/data/hmm_cutoffs_v241201.tsv'
+
 ### I/O
 
 def load_k_assignments(inFile=definition_path):

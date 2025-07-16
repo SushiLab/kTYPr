@@ -251,22 +251,127 @@ def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotat
     
     return annotations_list
 
-from BCBio import GFF
+#import os
+#import glob
+#from joblib import Parallel, delayed
+#from pathlib import Path
+#
+#SCRIPT_DIR = Path(__file__).resolve().parent  # Adjust this if SCRIPT_DIR is defined elsewhere
+#
+#def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotate=False, n_jobs=30):
+    """
+    Prepares a list of annotation files from the given input:
+    - If input is annotations (.faa), return directly.
+    - If input is genome files (FASTA/GenBank), extract annotations (optionally using a user-defined prefix).
+    
+    Returns:
+        annotations_list (str): Path to file listing all .faa annotation paths.
+        tracking_dict (dict): Dictionary with keys 'ides', 'path_faa', 'path_gff'
+    """
+    def resolve_paths(inFile):
+        if inFile.endswith(".txt"):
+            with open(inFile) as f:
+                return [line.strip() for line in f if line.strip()]
+        elif os.path.isdir(inFile):
+            extensions = ("*.fasta", "*.fa", "*.fna", "*.gb", "*.gbk", "*.faa")
+            files = []
+            for ext in extensions:
+                files.extend(glob.glob(os.path.join(inFile, ext)))
+            return sorted(files)
+        elif os.path.isfile(inFile):
+            return [inFile]
+        else:
+            raise ValueError(f"Invalid input: {inFile} is neither a file nor a directory.")
+
+    input_paths = resolve_paths(inFile)
+    tracking_dict = {'ides': [], 'path_faa': [], 'path_gff': []}
+
+    if all(path.endswith(".faa") for path in input_paths):
+        # Case: annotations already exist
+        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
+        with open(annotations_list, "w") as f:
+            for path in input_paths:
+                f.write(path + "\n")
+                ide = os.path.splitext(os.path.basename(path))[0]
+                tracking_dict['ides'].append(ide)
+                tracking_dict['path_faa'].append(path)
+                tracking_dict['path_gff'].append(None)
+
+    elif extract_annotations:
+        basedir = os.path.dirname(os.path.abspath(inFile))
+        ide = os.path.basename(basedir)
+
+        faa_o = os.path.join(outDir, f"{prefix}{ide}_faa")
+        gff_o = os.path.join(outDir, f"{prefix}{ide}_gff")
+        os.makedirs(faa_o, exist_ok=True)
+        os.makedirs(gff_o, exist_ok=True)
+
+        # Run gene calling
+        Parallel(n_jobs=n_jobs)(
+            delayed(process_genome_file)(
+                genome_path,
+                outDir_faa=faa_o,
+                outDir_gff=gff_o,
+                reannotate=reannotate
+            )
+            for genome_path in input_paths
+        )
+
+        # Track outputs
+        for genome_path in input_paths:
+            base = os.path.splitext(os.path.basename(genome_path))[0]
+            faa_file = os.path.join(faa_o, base + ".faa")
+            gff_file = os.path.join(gff_o, base + ".gff")
+            tracking_dict['ides'].append(base)
+            tracking_dict['path_faa'].append(faa_file)
+            tracking_dict['path_gff'].append(gff_file)
+
+        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
+        cmd = f'{SCRIPT_DIR}/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
+        os.system(cmd)
+
+    else:
+        raise ValueError("Input does not appear to be annotations, and annotation extraction is disabled.")
+    
+    return annotations_list, tracking_dict
+#
+#
+
+
+from pathlib import Path
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from Bio.SeqFeature import SeqFeature, FeatureLocation
+import gzip
+
+def parse_gff(gff_file):
+    """
+    Minimal GFF3 parser to extract features.
+    Yields tuples: (seq_id, source, type, start, end, strand, attributes_dict)
+    """
+    open_func = gzip.open if gff_file.endswith(".gz") else open
+    with open_func(gff_file, "rt") as fh:
+        for line in fh:
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.strip().split("\t")
+            if len(parts) != 9:
+                continue
+            seqid, source, type_, start, end, score, strand, phase, attributes = parts
+            attr_dict = {}
+            for attr in attributes.split(";"):
+                if "=" in attr:
+                    key, value = attr.split("=", 1)
+                    attr_dict[key] = value
+            yield seqid, source, type_, int(start), int(end), strand, attr_dict
+
 
 def create_genbank_from_inputs(input_file, gff_file, genome_fasta, selected_ids, output_genbank, id_attribute="ID", from_annotations=False):
     """
     Create a GenBank file with selected genes from either:
     - annotations (.faa): builds CDS-only GenBank
     - genome input (.fa/.gb + .gff): builds full GenBank with selected features
-
-    Args:
-        input_file (str): Path to the .faa or genome input file.
-        gff_file (str): Path to the .gff file (required if from_annotations=False).
-        genome_fasta (str): Path to genome fasta file (required if from_annotations=False).
-        selected_ids (list): List of gene IDs to keep (e.g., locus_tag or ID).
-        output_genbank (str): Path to the output GenBank file.
-        id_attribute (str): Qualifier to use for matching (e.g., 'ID', 'locus_tag').
-        from_annotations (bool): If True, assume input_file is a .faa file and make CDS-only GenBank.
     """
     output_genbank = Path(output_genbank)
 
@@ -275,24 +380,37 @@ def create_genbank_from_inputs(input_file, gff_file, genome_fasta, selected_ids,
         records = list(SeqIO.parse(input_file, "fasta"))
         filtered_records = [r for r in records if any(gid in r.id for gid in selected_ids)]
         for r in filtered_records:
-            r.seq.alphabet = None  # Remove alphabet warnings
+            r.annotations["molecule_type"] = "DNA"
         SeqIO.write(filtered_records, output_genbank, "genbank")
 
     else:
-        # From genome + GFF → Full GenBank with filtered annotations
-        fasta_dict = SeqIO.to_dict(SeqIO.parse(genome_fasta, "fasta"))
+        # Parse genome fasta
+        genome = SeqIO.to_dict(SeqIO.parse(genome_fasta, "fasta"))
 
-        with open(gff_file) as gff_handle:
-            records = list(GFF.parse(gff_handle, base_dict=fasta_dict))
+        # Build new SeqRecords with selected features
+        record_dict = {k: SeqRecord(seq=v.seq, id=v.id, name=v.name, description="", annotations={"molecule_type": "DNA"})
+                       for k, v in genome.items()}
 
-        for record in records:
-            record.features = [
-                f for f in record.features
-                if id_attribute in f.qualifiers and any(gid in f.qualifiers[id_attribute] for gid in selected_ids)
-            ]
+        for seqid, source, type_, start, end, strand, attr in parse_gff(gff_file):
+            if id_attribute not in attr:
+                continue
+            feature_id = attr[id_attribute]
+            if isinstance(feature_id, str):
+                match = any(gid == feature_id for gid in selected_ids)
+            else:
+                match = any(gid in feature_id for gid in selected_ids)
 
-        SeqIO.write(records, output_genbank, "genbank")
+            if not match or seqid not in record_dict:
+                continue
 
+            location = FeatureLocation(start - 1, end, strand=1 if strand == "+" else -1)
+            qualifiers = {k: [v] for k, v in attr.items()}
+            feat = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
+            record_dict[seqid].features.append(feat)
+
+        # Write only records with features
+        filtered_records = [r for r in record_dict.values() if r.features]
+        SeqIO.write(filtered_records, output_genbank, "genbank")
 
 
 # CLINKER 
@@ -309,36 +427,3 @@ def get_clinker(outDir, ks_to_extract):
             if any(ks in file for ks in ks_to_extract):
                 zipf.extract(file, path=outDir)
                 print(f"Extracted: {file}")
-
-
-
-if __name__ == "__main__":
-
-    # FOR RUNNING PRODIGAL    
-    directories = glob.glob('/nfs/home/smiravet/KTYPS_DEV/scratch/raw/fastkaptive/fetch.txt')
-    directories = ['/nfs/home/smiravet/KTYPS_DEV/scratch/raw/nuin/fetch.txt', '/nfs/home/smiravet/KTYPS_DEV/scratch/raw/sands/fetch.txt']
-    directories = [f'/nfs/home/smiravet/KTYPS_DEV/scratch/raw/{dataset}/fetch.txt' for dataset in ['galardini', 'botnar', 'colibafi', 'coliville', 'ecoref', 'lbc', 'roar', 'septicoli', 'touchon']]
-    directories = ['/nfs/home/smiravet/KTYPS_DEV/scratch/raw/commensal/fetch.txt']
-    directories = ['/nfs/home/smiravet/KTYPS_DEV/scratch/raw/picard/fetch.txt']
-    directories = ['/nfs/home/smiravet/KTYPS_DEV/scratch/raw/hong/fetch.txt']
-
-    wd = {}
-    for i in directories:
-        ide = i.split('/')[-2]
-        basedir = i.replace('/fetch.txt', '')
-        with open(i, 'r') as fi:
-            faa_o, gff_o = f'{basedir}/{ide}_faa/', f'{basedir}/{ide}_gff/'
-            os.makedirs(faa_o, exist_ok=True)  # succeeds even if directory exists.
-            os.makedirs(gff_o, exist_ok=True)  # succeeds even if directory exists.
-            wd[ide] = [[line.rstrip('\n') for line in fi], faa_o, gff_o] 
-    
-    # Extract annotation for all collections   
-    for ide, info in wd.items():
-        print(ide, len(info[0]))
-        Parallel(n_jobs=30)(delayed(get_faa_and_gff)(i, outDir_faa=info[1], outDir_gff=info[2]) for i in info[0])
-        print(ide, ' done!')
-
-    # for ide in ['galardini', 'botnar', 'colibafi', 'coliville', 'ecoref', 'lbc', 'roar', 'septicoli', 'touchon']:
-    for ide in ['hong']:
-        cmd = f'/nfs/home/smiravet/KTYPS_DEV/code/sh_utils/fetch_paths.sh /nfs/home/smiravet/KTYPS_DEV/scratch/raw/{ide}/{ide}_faa/ ".*\.faa$" /nfs/home/smiravet/KTYPS_DEV/scratch/raw/{ide}/fetch_annotations.txt'
-        os.system(cmd)

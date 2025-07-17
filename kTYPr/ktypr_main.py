@@ -16,8 +16,8 @@ kpsc_hmm_path    = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
 definition_path  = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512.tsv')
 cutoffs_path     = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
 
-definition_path = '/nfs/home/smiravet/KTYPS_DEV/data/kTYP_definitions_v241202.tsv'
-cutoffs_path = '/nfs/home/smiravet/KTYPS_DEV/data/hmm_cutoffs_v241201.tsv'
+#definition_path = '/nfs/home/smiravet/KTYPS_DEV/data/kTYP_definitions_v241202.tsv'
+#cutoffs_path = '/nfs/home/smiravet/KTYPS_DEV/data/hmm_cutoffs_v241201.tsv'
 
 thrs_dict = kh.load_bitscore_thrs(cutoffs_path)
 ktype_dict, subject_to_ktypes, ktype_gene_counts = kh.get_ktypes_dicts(definition_path)
@@ -211,7 +211,6 @@ def run_ktypr(inFile, outDir, collection_id, collection_folder=None,
     print(f'Preparing {inFile}...')
     fetch_file = ku.prepare_input(inFile, outDir=outDir, prefix=collection_id, reannotate=reannotate, extract_annotations=True, n_jobs=n_jobs, meta=meta)
     print(f'Running kTYPr on {fetch_file}...')
-
     run_on_collection(fetch_file, outDir, collection_id, collection_folder,
                       flanking=flanking, flank=flank, multi=multi,
                       _rfbBDAC=_rfbBDAC,

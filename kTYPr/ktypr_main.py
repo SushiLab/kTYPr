@@ -201,6 +201,12 @@ def run_on_collection(inFile,
                                                                                 append=append_fil, 
                                                                                 _rfbBDAC=_rfbBDAC) for fil in fils)
 
+def run_ktypr_on_input():
+    
+
+
+
+
 def run_ktypr(inFile, outDir, collection_id, collection_folder=None, 
               flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 
               parallel=True, n_jobs=10, redo=1, test=False, meta=False):

@@ -150,9 +150,124 @@ def profile_genome_from_aa_annotations_flanking(aa_file,
 
     return hits
 
+# NEW
+
+def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=True, 
+                         reannotate=False, meta=False, flanking=False, flank=30000,
+                         multi=False, _rfbBDAC=False, append_fil=None):
+    result = ku.prepare_single_input(
+        genome_path=genome_path, 
+        outDir=outDir, 
+        prefix=prefix, 
+        extract_annotations=extract_annotations, 
+        reannotate=reannotate, 
+        meta=meta
+    )
+
+    if not result['faa_path']:
+        raise RuntimeError(f"Annotation failed or .faa file not available for {genome_path}")
+
+    if flanking:
+        profile_genome_from_aa_annotations_flanking(
+            aa_file=result['faa_path'],
+            flank=flank,
+            gff_file=result['gff_path'],
+            outDir=outDir,
+            append=append_fil,
+            _multi_kps=multi,
+            _rfbBDAC=_rfbBDAC
+        )
+    else:
+        profile_genome_from_aa_annotations(
+            aa_file=result['faa_path'],
+            outDir=outDir,
+            append=append_fil,
+            _rfbBDAC=_rfbBDAC
+        )
+
+    # Optional: Create GenBank in genome folder
+    genome_dir = Path(result['faa_path']).parent
+    genbank_path = genome_dir / f"{Path(result['faa_path']).stem}.gbk"
+    if result['gff_path'] is not None:
+        genome_fasta = result['genome_path']
+        create_genbank_from_inputs(
+            input_file=result['faa_path'],
+            gff_file=result['gff_path'],
+            genome_fasta=genome_fasta,
+            selected_ids=[],  # or pass specific gene IDs if needed
+            output_genbank=genbank_path,
+            id_attribute="ID",
+            from_annotations=False
+        )
+
+
+def run_ktypr(inFile, outDir, collection_id, collection_folder=None, 
+              flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 
+              parallel=True, n_jobs=10, redo=1, test=False, meta=False):
+    """
+    Main function to run ktypr on a collection of genomes
+    """
+    # Resolve input genome files
+    input_paths = ku.prepare_input(inFile, outDir=outDir, prefix=collection_id, 
+                                   extract_annotations=False, reannotate=reannotate, 
+                                   n_jobs=1, meta=meta)  # only resolve files, don't run annotations
+    
+    if isinstance(input_paths, str):  # fallback to fetch file logic
+        with open(input_paths, 'r') as f:
+            input_paths = [line.strip() for line in f]
+
+    if test:
+        input_paths = input_paths[:10]
+
+    if collection_folder:
+        timestamp = datetime.now().strftime("%Y%m%d")
+        append_fil = f'{collection_folder}/{collection_id}_{timestamp}_ktypr.tsv'
+    else:
+        append_fil = f'{outDir}/{collection_id}_ktypr.tsv'
+
+    if redo:
+        if os.path.isfile(append_fil):
+            os.remove(append_fil)
+        with open(append_fil, 'w') as fo:
+            fo.write('\t'.join(['genome_id'] + kanalysis_columns) + '\n')
+
+    # Run annotation + profiling per genome
+    if parallel:
+        Parallel(n_jobs=n_jobs)(
+            delayed(annotate_and_profile)(
+                genome_path=genome_path,
+                outDir=outDir,
+                prefix=collection_id + '_',
+                extract_annotations=True,
+                reannotate=reannotate,
+                meta=meta,
+                flanking=flanking,
+                flank=flank,
+                multi=multi,
+                _rfbBDAC=_rfbBDAC,
+                append_fil=append_fil
+            ) for genome_path in input_paths
+        )
+    else:
+        for genome_path in input_paths:
+            annotate_and_profile(
+                genome_path=genome_path,
+                outDir=outDir,
+                prefix=collection_id + '_',
+                extract_annotations=True,
+                reannotate=reannotate,
+                meta=meta,
+                flanking=flanking,
+                flank=flank,
+                multi=multi,
+                _rfbBDAC=_rfbBDAC,
+                append_fil=append_fil
+            )
+
 
 # FOR MULTIPLE GENOMES
 
+# LEGACY
 def run_on_collection(inFile,
                       outDir, 
                       collection_id, collection_folder=None,
@@ -199,13 +314,7 @@ def run_on_collection(inFile,
             Parallel(n_jobs=n_jobs)(delayed(profile_genome_from_aa_annotations)(aa_file=fil, 
                                                                                 outDir=outDir, 
                                                                                 append=append_fil, 
-                                                                                _rfbBDAC=_rfbBDAC) for fil in fils)
-
-def run_ktypr_on_input():
-    
-
-
-
+                                                                                _rfbBDAC=_rfbBDAC) for fil in fils)    
 
 def run_ktypr(inFile, outDir, collection_id, collection_folder=None, 
               flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 

@@ -264,9 +264,6 @@ def run_ktypr(inFile, outDir, collection_id, collection_folder=None,
                 append_fil=append_fil
             )
 
-
-# FOR MULTIPLE GENOMES
-
 # LEGACY
 def run_on_collection(inFile,
                       outDir, 

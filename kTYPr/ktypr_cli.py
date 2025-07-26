@@ -36,6 +36,10 @@ def parse_args():
     parser.add_argument("-r", "--reannotate", action="store_true",
                         help="Reannotate genes using Prodigal, even if annotations are present in the GenBank file."
     )
+
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Enable verbose output for debugging purposes."
+    )
     
     return parser.parse_args()
 

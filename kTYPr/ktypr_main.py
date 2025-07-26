@@ -9,325 +9,234 @@ from joblib import Parallel, delayed
 from datetime import datetime
 
 ### GLOBAL VARIABLES
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
+SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
 hmms_path        = os.path.join(SCRIPT_DIR, 'data', 'hmms', '*.hmm')
 kpsc_hmm_path    = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
 definition_path  = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512.tsv')
 cutoffs_path     = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
+thrs_dict        = kh.load_bitscore_thrs(cutoffs_path)
 
-#definition_path = '/nfs/home/smiravet/KTYPS_DEV/data/kTYP_definitions_v241202.tsv'
-#cutoffs_path = '/nfs/home/smiravet/KTYPS_DEV/data/hmm_cutoffs_v241201.tsv'
-
-thrs_dict = kh.load_bitscore_thrs(cutoffs_path)
+# Load definitions and report info
 ktype_dict, subject_to_ktypes, ktype_gene_counts = kh.get_ktypes_dicts(definition_path)
-kanalysis_columns, korder = kh.get_ktypr_columns_and_order(ktype_dict)
+kanalysis_columns, korder                        = kh.get_ktypr_columns_and_order(ktype_dict)
 
 ### MAIN
-
-def set_directory_outputs(identifier, outDir, flanking=False):
+def _profile_genome_core(faa_path,
+                         result_dict,
+                         hmms_path,
+                         thrs,
+                         conserved,
+                         append,
+                         _rfbBDAC,
+                         classification_label='',
+                         skip_hits=False):
     """
-    Sets directories and defines paths to store hits and prediction files 
+    Core function to run HMM search, process hits, and write classification.
     """
-    if outDir[-1]!='/':
-        outDir += '/'
-    outDir += f'{identifier}/'
-    Path(outDir).mkdir(parents=True, exist_ok=True)
-    outdict = {'outdir':outDir, 'id':identifier, 
-               'hits':f'{outDir}{identifier}_hits.tsv.gz', 
-               'classification':f'{outDir}{identifier}_ktypr.tsv'}
-    if flanking:
-        outdict['flank'] = f'{outDir}{identifier}_flanks.faa'
+    if skip_hits:
+        best = classification_label or 'No KpsC identified'
+        hits = {}
+    else:
+        # Run HMMs
+        hits_df = kh.retrieve_hits(faa_path, hmms_path)
+        hits_df.to_csv(result_dict['hits'], sep='\t', compression='gzip')  # Save all hits
 
-    return outdict
+        # Filter by bitscore, group by unique subject hit and produce the dictionary with K-type info
+        filtered_hits = kh.apply_bitscore_thresholds(hits_df, thrs)
+        max_hits = kh.filter_max_bitscore(filtered_hits)
+        
+        # Save filt_hits
+        max_hits.to_csv(result_dict['filt_hits'], sep='\t', compression='gzip')  # Save filtered hits
 
-def profile_genome_from_aa_annotations(aa_file, 
-                                       hmms_path=hmms_path, 
-                                       thrs=thrs_dict, 
-                                       conserved = ['KpsEDCSMT', 'KpsFU'], 
-                                       identifier=None,
-                                       outDir=None,
-                                       append=None,
-                                       _rfbBDAC=True):
-    """
-    Runs the default pipeline given a fasta aa file 
-    """
+        # Count hits per ktype
+        hits = kh.calculate_hits_and_bitscores(max_hits, subject_to_ktypes, ktype_gene_counts, _rfbBDAC)
 
-    # Run HMMs
-    hits = kh.retrieve_hits(aa_file, hmms_path)
+        # Get best prediction
+        best = kh.get_best_k({k: v for k, v in hits.items() if k not in conserved})
 
-    # Set directories and identifier to save the output
-    if not identifier:
-        identifier = aa_file.split('/')[-1].split('.')[0]
-    if outDir:
-        # Get identifier and set directory
-        manager_dict = set_directory_outputs(identifier, outDir)
-        hits.to_csv(manager_dict['hits'], sep='\t', compression='gzip')   # Save all hits
-
-    # Filter by bitscore, group by unique subject hit and produce the dictionary with K-type info
-    hits = kh.calculate_hits_and_bitscores(kh.filter_max_bitscore(kh.apply_bitscore_thresholds(hits, thrs)), 
-                                           subject_to_ktypes, ktype_gene_counts, _rfbBDAC)
-    
-    # Get best and add it to the dictionary
-    best = kh.get_best_k({k:v for k, v in hits.items() if k not in conserved})
+    # Store predicted best result
     hits['pred'] = hits.get(best, [0, 0, 0, 0])
 
-    # Make output
-    if outDir:
-        results = [identifier, best]+hits['pred']
-        for k in korder:
-            results += hits.get(k, [ktype_gene_counts[k],0,0,0])
-        if append:
-            with open(append, 'a') as fo:
-                fo.write('\t'.join([str(i) for i in results])+'\n')
-        else:
-            with open(manager_dict['classification'], 'w') as fo:
-                fo.write('\t'.join(kanalysis_columns)+'\n')
-                fo.write('\t'.join([str(i) for i in results])+'\n')
+    # Store output
+    results = [result_dict['ide'], best] + hits['pred']
+    for k in korder:
+        results += hits.get(k, [ktype_gene_counts[k], 0, 0, 0])
+
+    with open(result_dict['classification'], 'w') as fo:
+        fo.write('\t'.join(kanalysis_columns) + '\n')
+        fo.write('\t'.join(str(i) for i in results) + '\n')
+
+    if append:
+        with open(append, 'a') as fo:
+            fo.write('\t'.join(str(i) for i in results) + '\n')
+
+    # Update
+    result_dict['done'] = 1
+    result_dict['ktype'] = best
 
     return hits
 
+def profile_genome_from_aa_annotations(result_dict, 
+                                       hmms_path=hmms_path, 
+                                       thrs=thrs_dict, 
+                                       conserved=['KpsEDCSMT', 'KpsFU'], 
+                                       append=None,
+                                       _rfbBDAC=True):
+    """
+    Runs the default pipeline given a fasta aa file.
+    """
+    return _profile_genome_core(result_dict['faa_path'],
+                                result_dict,
+                                hmms_path,
+                                thrs,
+                                conserved,
+                                append,
+                                _rfbBDAC)
 
-def profile_genome_from_aa_annotations_flanking(aa_file, 
-                                                flank = 30000,
-                                                gff_file=None,
+
+def profile_genome_from_aa_annotations_flanking(result_dict, 
+                                                flank=30000,
                                                 flank_hmm_path=kpsc_hmm_path, 
                                                 hmms_path=hmms_path, 
                                                 thrs=thrs_dict, 
-                                                conserved = ['KpsEDCSMT', 'KpsFU'], 
-                                                identifier=None,
-                                                outDir='./',
+                                                conserved=['KpsEDCSMT', 'KpsFU'], 
                                                 append=None,
                                                 _multi_kps=False, 
                                                 _rfbBDAC=False):
     """
-    Runs the default pipeline given a fasta aa file 
+    Runs the default pipeline only for annotations flanking the KpsC gene.
     """
-
-    # Check if KpsC present
-    kpsc = kh.profile_KpsC(aa_file, flank_hmm_path, multi=_multi_kps)
-    # Subset flanking
-    if not identifier:
-        identifier = aa_file.split('/')[-1].split('.')[0]
-
+    kpsc = kh.profile_KpsC(result_dict['faa_path'], flank_hmm_path, multi=_multi_kps)
     if kpsc:
-        manager_dict = set_directory_outputs(identifier, outDir, flanking=True)
+        ku.subset_flanking(result_dict['faa_path'], kpsc,
+                           gff_file=result_dict['gff_path'],
+                           flank=flank,
+                           out_file=result_dict['faa_flank_path'])
 
-        # Filter the fasta based on annotation
-        ku.subset_flanking(aa_file, kpsc, gff_file=gff_file, flank=30000, out_file=manager_dict['flank'])
-
-        # Run HMMs
-        hits = kh.retrieve_hits(manager_dict['flank'], hmms_path)
-
-        if outDir:
-            # Get identifier and set directory
-            hits.to_csv(manager_dict['hits'], sep='\t', compression='gzip')   # Save all hits
-
-        # Filter by bitscore, group by unique subject hit and produce the dictionary with K-type info
-        hits = kh.calculate_hits_and_bitscores(kh.filter_max_bitscore(kh.apply_bitscore_thresholds(hits, thrs)), 
-                                               subject_to_ktypes, ktype_gene_counts, _rfbBDAC)
-    
-        # Get best and add it to the dictionary
-        best = kh.get_best_k({k:v for k, v in hits.items() if k not in conserved})
+        return _profile_genome_core(result_dict['faa_flank_path'],
+                                    result_dict,
+                                    hmms_path,
+                                    thrs,
+                                    conserved,
+                                    append,
+                                    _rfbBDAC)
     else:
-        best = 'No KpsC identified'
-        hits = {}
-
-    hits['pred'] = hits.get(best, [0, 0, 0, 0])
-
-    # Make output
-    if outDir:
-        results = [identifier, best]+hits['pred']
-        for k in korder:
-            results += hits.get(k, [ktype_gene_counts[k],0,0,0])
-        if append:
-            with open(append, 'a') as fo:
-                fo.write('\t'.join([str(i) for i in results])+'\n')
-        else:
-            with open(manager_dict['classification'], 'w') as fo:
-                fo.write('\t'.join(kanalysis_columns)+'\n')
-                fo.write('\t'.join([str(i) for i in results])+'\n')
-
-    return hits
+        return _profile_genome_core(result_dict['faa_path'],
+                                    result_dict,
+                                    hmms_path,
+                                    thrs,
+                                    conserved,
+                                    append,
+                                    _rfbBDAC,
+                                    classification_label='No KpsC identified',
+                                    skip_hits=True)
 
 # NEW
 
 def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=True, 
                          reannotate=False, meta=False, flanking=False, flank=30000,
-                         multi=False, _rfbBDAC=False, append_fil=None):
+                         multi=False, _rfbBDAC=False, append_fil=None, verbose=True):
+    """
+    Annotates a genome or annotation file and profiles it for K-type prediction.
+    """    
     result = ku.prepare_single_input(
         genome_path=genome_path, 
         outDir=outDir, 
         prefix=prefix, 
         extract_annotations=extract_annotations, 
         reannotate=reannotate, 
-        meta=meta
+        meta=meta,
+        verbose=verbose
     )
 
-    if not result['faa_path']:
-        raise RuntimeError(f"Annotation failed or .faa file not available for {genome_path}")
-
     if flanking:
+        if verbose:
+            print('Profiling genome with flanking KpsC annotations...')
         profile_genome_from_aa_annotations_flanking(
-            aa_file=result['faa_path'],
+            result_dict=result,
             flank=flank,
-            gff_file=result['gff_path'],
-            outDir=outDir,
             append=append_fil,
             _multi_kps=multi,
             _rfbBDAC=_rfbBDAC
         )
     else:
+        if verbose:
+            print('Profiling genome with whole-genome annotations...')
         profile_genome_from_aa_annotations(
-            aa_file=result['faa_path'],
-            outDir=outDir,
+            result_dict=result,
             append=append_fil,
             _rfbBDAC=_rfbBDAC
         )
 
     # Optional: Create GenBank in genome folder
-    genome_dir = Path(result['faa_path']).parent
-    genbank_path = genome_dir / f"{Path(result['faa_path']).stem}.gbk"
-    if result['gff_path'] is not None:
-        genome_fasta = result['genome_path']
-        create_genbank_from_inputs(
-            input_file=result['faa_path'],
-            gff_file=result['gff_path'],
-            genome_fasta=genome_fasta,
+    if result['gff_path'] is not None and 1==0:
+        print('Creating GenBank file...')
+        ku.create_genbank_from_inputs(result_dict=result,
             selected_ids=[],  # or pass specific gene IDs if needed
-            output_genbank=genbank_path,
             id_attribute="ID",
-            from_annotations=False
-        )
+            from_annotations=False)
+
+    return result
 
 
-def run_ktypr(inFile, outDir, collection_id, collection_folder=None, 
-              flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 
-              parallel=True, n_jobs=10, redo=1, test=False, meta=False):
+def ktypr(inFile, outDir, prefix=None,
+          flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 
+          parallel=True, n_jobs=10, meta=False, verbose=False):
     """
     Main function to run ktypr on a collection of genomes
     """
-    # Resolve input genome files
-    input_paths = ku.prepare_input(inFile, outDir=outDir, prefix=collection_id, 
-                                   extract_annotations=False, reannotate=reannotate, 
-                                   n_jobs=1, meta=meta)  # only resolve files, don't run annotations
-    
-    if isinstance(input_paths, str):  # fallback to fetch file logic
-        with open(input_paths, 'r') as f:
-            input_paths = [line.strip() for line in f]
+    # Resolve input file(s) and check they are valid
+    input_paths = ku.resolve_paths(inFile, verbose=verbose)
+    if verbose:
+        print(f"Resolved input paths: {input_paths}")
 
-    if test:
-        input_paths = input_paths[:10]
-
-    if collection_folder:
-        timestamp = datetime.now().strftime("%Y%m%d")
-        append_fil = f'{collection_folder}/{collection_id}_{timestamp}_ktypr.tsv'
-    else:
-        append_fil = f'{outDir}/{collection_id}_ktypr.tsv'
-
-    if redo:
-        if os.path.isfile(append_fil):
-            os.remove(append_fil)
-        with open(append_fil, 'w') as fo:
-            fo.write('\t'.join(['genome_id'] + kanalysis_columns) + '\n')
-
-    # Run annotation + profiling per genome
-    if parallel:
-        Parallel(n_jobs=n_jobs)(
-            delayed(annotate_and_profile)(
-                genome_path=genome_path,
-                outDir=outDir,
-                prefix=collection_id + '_',
-                extract_annotations=True,
-                reannotate=reannotate,
-                meta=meta,
-                flanking=flanking,
-                flank=flank,
-                multi=multi,
-                _rfbBDAC=_rfbBDAC,
-                append_fil=append_fil
-            ) for genome_path in input_paths
-        )
-    else:
-        for genome_path in input_paths:
-            annotate_and_profile(
-                genome_path=genome_path,
-                outDir=outDir,
-                prefix=collection_id + '_',
-                extract_annotations=True,
-                reannotate=reannotate,
-                meta=meta,
-                flanking=flanking,
-                flank=flank,
-                multi=multi,
-                _rfbBDAC=_rfbBDAC,
-                append_fil=append_fil
-            )
-
-# LEGACY
-def run_on_collection(inFile,
-                      outDir, 
-                      collection_id, collection_folder=None,
-                      flanking=False, flank=30000, multi=False, 
-                      _rfbBDAC=False, 
-                      parallel=True, n_jobs=10, redo=1, test=False):
-    
-    # Process all input files in parallel
-    with open(inFile, 'r') as file:
-        fils = [line.strip() for line in file]    
-    
-    # For testing purposes
-    if test:
-        fils = fils[:10]
-
-    # Manage file to append and redo
-    if collection_folder:
-        # Generate the current timestamp
-        timestamp = datetime.now().strftime("%Y%m%d")
-        append_fil = f'{collection_folder}/{collection_id}_{timestamp}_ktypr.tsv'
-    else:
-        append_fil = f'{outDir}/{collection_id}_ktypr.tsv'
-
-    if redo:
-        if os.path.isfile(append_fil):
-            os.remove(append_fil)
-        with open(append_fil, 'w') as fo:
-            fo.write('\t'.join(['genome_id']+kanalysis_columns)+'\n')
-    else:
-        pass
-    
-    # Run in parallel
-    if parallel:
-        if flanking:
-            Parallel(n_jobs=n_jobs)(delayed(profile_genome_from_aa_annotations_flanking)(aa_file=fil, 
-                                                                                         flank=flank,
-                                                                                         gff_file=fil.replace('_faa/', '_gff/').replace('.faa', '.gff'), 
-                                                                                         outDir=outDir, 
-                                                                                         append=append_fil,
-                                                                                         _multi_kps=multi, 
-                                                                                         _rfbBDAC=_rfbBDAC) for fil in fils)
+    if len(input_paths)>1:
+        if not prefix:
+            append_fil = os.path.join(outDir, 'ktypr_results.tsv')
+            prefix = ''
         else:
-            # Default
-            Parallel(n_jobs=n_jobs)(delayed(profile_genome_from_aa_annotations)(aa_file=fil, 
-                                                                                outDir=outDir, 
-                                                                                append=append_fil, 
-                                                                                _rfbBDAC=_rfbBDAC) for fil in fils)    
+            append_fil = os.path.join(outDir, f'{prefix}results.tsv')
+        with open(append_fil, 'w') as fo:
+            fo.write('\t'.join(kanalysis_columns)+'\n')
 
-def run_ktypr(inFile, outDir, collection_id, collection_folder=None, 
-              flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 
-              parallel=True, n_jobs=10, redo=1, test=False, meta=False):
-    """
-    Main function to run ktypr on a collection of genomes
-    """
-    # Prepare input
-    print(f'Preparing {inFile}...')
-    fetch_file = ku.prepare_input(inFile, outDir=outDir, prefix=collection_id, reannotate=reannotate, extract_annotations=True, n_jobs=n_jobs, meta=meta)
-    print(f'Running kTYPr on {fetch_file}...')
-    run_on_collection(fetch_file, outDir, collection_id, collection_folder,
-                      flanking=flanking, flank=flank, multi=multi,
-                      _rfbBDAC=_rfbBDAC,
-                      parallel=parallel, n_jobs=n_jobs, redo=redo, test=test)
-                      
+
+    # Annotate and profile each genome
+    if parallel and n_jobs!=1:
+        results = Parallel(n_jobs=n_jobs)(
+                      delayed(annotate_and_profile)(
+                          genome_path=genome_path,
+                          outDir=outDir,
+                          prefix=prefix,
+                          extract_annotations=True,
+                          reannotate=reannotate,
+                          meta=meta,
+                          flanking=flanking,
+                          flank=flank,
+                          multi=multi,
+                          _rfbBDAC=_rfbBDAC,
+                          append_fil=append_fil,
+                          verbose=verbose
+                              ) for genome_path in input_paths
+                      )
+    else:
+        # This is only when no parallel or n_jobs=1
+        # Not really needed, but should be faster than n_jobs=1 as it skips joblib overhead
+        for genome_path in input_paths:
+            results = annotate_and_profile(
+                          genome_path=genome_path,
+                          outDir=outDir,
+                          prefix=prefix,
+                          extract_annotations=True,
+                          reannotate=reannotate,
+                          meta=meta,
+                          flanking=flanking,
+                          flank=flank,
+                          multi=multi,
+                          _rfbBDAC=_rfbBDAC,
+                          append_fil=append_fil,
+                          verbose=verbose
+                     )   
+    return results
 
 if __name__ == "__main__":
     a = 2

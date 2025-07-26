@@ -38,12 +38,11 @@ def get_faa_and_gff(fil, outfaa, outgff, ide, meta=False, verbose=True):
     Writes translated proteins to `outfaa` and gene annotations to `outgff`.
     """
     open_func = gzip.open if str(fil).endswith('.gz') else open
-    print(fil, outfaa, outgff, ide, meta)
     with open_func(fil, "rt") as f, open(outfaa, "w") as ffo, open(outgff, "w") as gfo:
         records = list(SeqIO.parse(f, "fasta"))
-        orf_finder = set_pyrodigal_model(records, meta=meta)
+        orf_finder = set_pyrodigal_model(records, meta=meta, verbose=verbose)
         if verbose:
-            print(f'Processing {ide} with {len(records)} records')
+            print(f'Gene calling running on {ide} with {len(records)} records')
         for i, record in enumerate(records):
             seq_id = f"{ide}__{record.id}"
             genes = orf_finder.find_genes(bytes(record.seq))
@@ -74,44 +73,45 @@ def split_genbank_to_faa_and_gff(input_genbank, outfaa, outgff, ide, reannotate=
         orf_finder = set_pyrodigal_model(records, meta=meta)
 
     # Check number of records
-    if len(records) == 0:
-        print(f"No records found in {input_genbank}. Skipping.")
-    elif len(records) == 1:
-        # If only one record, process it directly
-        genome_id = records[0].name
-        faa_file = outDir_faa / f"{genome_id}.faa"
-        gff_file = outDir_gff / f"{genome_id}.gff"
+    flag = False
+    if len(records) == 1:
+        flag = True
+        record = records[0]
     else:
-        print(f"Multiple records ({len(records)}) in {input_genbank}")
+        if verbose:
+            if len(records) == 0:
+                print(f"No records found in {input_genbank}. Skipping.")
+            else:
+                print(f"Multiple records ({len(records)}) in {input_genbank}, please provide a single record GenBank file.")
     
     # Split records to faa and gff files
-    with open(outfaa, "w") as faa_out, open(outgff, "w") as gff_out:
-        # Write GFF header
-        gff_out.write("##gff-version 3\n")
-        gff_out.write(f"##sequence-region {genome_id} 1 {len(record)}\n")
-        cds_features = [f for f in record.features if f.type == "CDS"]
-        if reannotate or not cds_features:
-            # Run Pyrodigal gene prediction
-            genes = orf_finder.find_genes(bytes(record.seq))
-            genes.write_gff(gff_out, sequence_id=genome_id, header=False)
-            genes.write_translations(faa_out, sequence_id=genome_id)
-        else:
-            for feature in cds_features:
-                cds_seq = feature.extract(record.seq)
-                protein_seq = cds_seq.translate(to_stop=True)
-                protein_id = feature.qualifiers.get("locus_tag", ["unknown"])[0]
-                gene_id = feature.qualifiers.get("gene", ["unknown"])[0]
-                faa_record = SeqRecord(protein_seq, id=gene_id + '_' + protein_id, description="")
-                SeqIO.write(faa_record, faa_out, "fasta")
-                start = int(feature.location.start) + 1
-                end = int(feature.location.end)
-                strand = "+" if feature.location.strand == 1 else "-"
-                attributes = f"ID={protein_id};"
-                if "product" in feature.qualifiers:
-                    attributes += f"product={feature.qualifiers['product'][0]};"
-                gff_line = f"{genome_id}\tGenBank\tCDS\t{start}\t{end}\t.\t{strand}\t0\t{attributes}\n"
-                gff_out.write(gff_line)
-    return faa_file, gff_file
+    if flag:
+        with open(outfaa, "w") as faa_out, open(outgff, "w") as gff_out:
+            # Write GFF header
+            gff_out.write("##gff-version 3\n")
+            gff_out.write(f"##sequence-region {ide} 1 {len(record)}\n")
+            cds_features = [f for f in record.features if f.type == "CDS"]
+            if reannotate or not cds_features:
+                # Run Pyrodigal gene prediction
+                genes = orf_finder.find_genes(bytes(record.seq))
+                genes.write_gff(gff_out, sequence_id=ide, header=False)
+                genes.write_translations(faa_out, sequence_id=ide)
+            else:
+                for feature in cds_features:
+                    cds_seq = feature.extract(record.seq)
+                    protein_seq = cds_seq.translate(to_stop=True)
+                    protein_id = feature.qualifiers.get("locus_tag", ["unknown"])[0]
+                    gene_id = feature.qualifiers.get("gene", ["unknown"])[0]
+                    faa_record = SeqRecord(protein_seq, id=gene_id + '_' + protein_id, description="")
+                    SeqIO.write(faa_record, faa_out, "fasta")
+                    start = int(feature.location.start) + 1
+                    end = int(feature.location.end)
+                    strand = "+" if feature.location.strand == 1 else "-"
+                    attributes = f"ID={protein_id};"
+                    if "product" in feature.qualifiers:
+                        attributes += f"product={feature.qualifiers['product'][0]};"
+                    gff_line = f"{ide}\tGenBank\tCDS\t{start}\t{end}\t.\t{strand}\t0\t{attributes}\n"
+                    gff_out.write(gff_line)
 
 # Parsers and gene subsetting
 
@@ -163,27 +163,85 @@ def subset_flanking(fasta_file, gene_id, gff_file=None, flank=30000, out_file=No
 
 # Processing input 
 
-def process_genome_file(genome_path, outfaa, outgff, ide, reannotate=False, meta=False):
+def check_valid_input(files, extensions, verbose=True):
+    """
+    Checks if files exist and match the given extensions.
+
+    Args:
+        files (list): List of file paths.
+        extensions (list): List of allowed extensions (e.g., ['.fa', '.gbk']).
+        verbose (bool): Print messages for invalid files.
+
+    Returns:
+        list: Valid file paths.
+    """
+    # Normalize extensions to start with dot and lowercase
+    norm_exts = {ext if ext.startswith('.') else f'.{ext}' for ext in extensions}
+    norm_exts = {ext.lower() for ext in norm_exts}
+
+    valid = []
+    invalid = []
+    for file in files:
+        p = Path(file)
+        if p.is_file() and p.suffix.lower() in norm_exts:
+            valid.append(str(p))
+        else:
+            invalid.append(str(p))
+    if verbose:
+        for file in invalid:
+            print(f"Invalid file: {file}. Expected one of {sorted(norm_exts)}.")
+        if not valid:
+            print("No valid files found.")
+    return valid
+
+
+def resolve_paths(inFile, extensions = [".fasta", ".fa", ".fna", ".gb", ".gbk", ".faa"], verbose=True):
+    """
+    Resolves input paths based on the type of input provided.
+    - If a .txt file, reads paths from it.
+    - If a directory, collects all fasta/genbank files.
+    - If a single file, returns that file.
+    """
+
+    # Get and check valid if list of files as txt
+
+    if inFile.endswith(".txt"):
+        with open(inFile) as f:
+            files = [line.strip() for line in f if line.strip()]
+    elif os.path.isdir(inFile):
+        files = []
+        for ext in extensions:
+            files.extend(glob.glob(os.path.join(inFile, f'*{ext}')))
+    elif os.path.isfile(inFile):
+        files = [inFile]
+    else:
+        raise ValueError(f"Invalid input: {inFile} is neither a file nor a directory.")
+    
+    return sorted(check_valid_input(files, extensions, verbose=verbose))
+
+
+def process_genome_file(genome_path, outfaa, outgff, ide, reannotate=False, meta=False, verbose=True):
     genome_path = Path(genome_path)
     if genome_path.suffix in {".gb", ".gbk", ".gbff"}:
         # GenBank format
-        split_genbank_to_faa_and_gff(str(genome_path), outfaa, outgff, ide, reannotate=reannotate, meta=meta)
+        split_genbank_to_faa_and_gff(str(genome_path), outfaa, outgff, ide, reannotate=reannotate, meta=meta, verbose=verbose)
     elif genome_path.suffix in {".fna", ".fa", ".fasta"}:
         # FASTA format
-        get_faa_and_gff(str(genome_path), outfaa, outgff, ide, meta=meta)
+        get_faa_and_gff(str(genome_path), outfaa, outgff, ide, meta=meta, verbose=verbose)
     else:
-        print(f"Unknown file format for {genome_path}, skipping.")
+        if verbose:
+            print(f"Unknown file format for {genome_path}, skipping.")
 
 
 def prepare_single_input(genome_path, outDir, prefix='', 
-                         extract_annotations=True, reannotate=False, meta=False):
+                         extract_annotations=True, reannotate=False, meta=False, verbose=True):
     """
-    Processes a single genome or annotation file.
-    Returns a dictionary with identifiers, paths to .faa and .gff files,
+    Checks and annotates with pyrodigal (if needed/selected) a single genome or annotation file.
+    Returns a dictionary to handle results with identifiers, paths to .faa and .gff files,
     and expected outputs for hits and classification.
     """
     genome_path = Path(genome_path)
-    identifier = prefix + genome_path.stem
+    identifier  = prefix + genome_path.stem
     outdir = Path(outDir) / identifier
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -192,16 +250,26 @@ def prepare_single_input(genome_path, outDir, prefix='',
         'genome_path': str(genome_path),
         'outdir': str(outdir),
         'faa_path': str(outdir / f"{identifier}.faa"),
+        'faa_flank_path': str(outdir / f"{identifier}_flanks.faa"),
         'gff_path': str(outdir / f"{identifier}.gff"),
+        'gbk_path': str(outdir / f"{identifier}.gbk"),
         'hits': str(outdir / f"{identifier}_hits.tsv.gz"),
+        'filt_hits': str(outdir / f"{identifier}_filtered_hits.tsv.gz"),
         'classification': str(outdir / f"{identifier}_ktypr.tsv"),
+        'clinker': str(outdir / f"{identifier}_clinker.zip"),
         'annotated': 0,
         'done': 0
     }
 
     # Already annotated (input is a .faa file)
     if genome_path.suffix == ".faa":
-        result['faa_path'] = str(genome_path)
+        if verbose:
+            print(f"A set of proteins (.faa) has been provided: {genome_path}")
+        result['faa_path']  = str(genome_path)
+        result['gff_path']  = None
+        result['gbk_path']  = None
+        result['clinker']   = None
+        result['annotated'] = 1
         return result
 
     if not extract_annotations:
@@ -214,73 +282,19 @@ def prepare_single_input(genome_path, outDir, prefix='',
         outgff=result['gff_path'],
         ide=identifier,
         reannotate=reannotate,
-        meta=meta
+        meta=meta,
+        verbose=verbose
     )
     result['annotated'] = 1
 
     return result
 
-
-######
-
-def prepare_input(inFile, outDir, prefix='', extract_annotations=True, reannotate=False, n_jobs=30, meta=False):
-    """
-    Prepares a list of annotation files from the given input:
-    - If input is annotations (.faa), return directly.
-    - If input is genome files (FASTA/GenBank), extract annotations (optionally using a user-defined prefix).
-    """
-    def resolve_paths(inFile):
-        if inFile.endswith(".txt"):
-            with open(inFile) as f:
-                return [line.strip() for line in f if line.strip()]
-        elif os.path.isdir(inFile):
-            extensions = ("*.fasta", "*.fa", "*.fna", "*.gb", "*.gbk", "*.faa")
-            files = []
-            for ext in extensions:
-                files.extend(glob.glob(os.path.join(inFile, ext)))
-            return sorted(files)
-        elif os.path.isfile(inFile):
-            return [inFile]
-        else:
-            raise ValueError(f"Invalid input: {inFile} is neither a file nor a directory.")
-
-    input_paths = resolve_paths(inFile)
-    manager_dict = []
-
-    # If they are all .faa files, we assume annotations are already provided
-    if all(path.endswith(".faa") for path in input_paths):
-        for path in input_paths:
-            manager_dict += [{'ide': os.path.splitext(os.path.basename(path))[0], 'faa_path': path, 'gff_path': None} for path in input_paths]
-
-    elif extract_annotations:
-        basedir = os.path.dirname(os.path.abspath(inFile))
-        ide = os.path.basename(basedir)
-
-        faa_o = os.path.join(outDir, f"{prefix}{ide}_faa")
-        gff_o = os.path.join(outDir, f"{prefix}{ide}_gff")
-        os.makedirs(faa_o, exist_ok=True)
-        os.makedirs(gff_o, exist_ok=True)
-
-        # Run gene calling
-        Parallel(n_jobs=n_jobs)(
-            delayed(process_genome_file)(genome_path, outDir_faa=faa_o, outDir_gff=gff_o, reannotate=reannotate, meta=meta)
-            for genome_path in input_paths
-        )
-
-        annotations_list = os.path.join(outDir, "fetch_annotations.txt")
-        cmd = f'{SCRIPT_DIR}/fetch_paths.sh {faa_o} ".*\\.faa$" {annotations_list}'
-        os.system(cmd)
-    else:
-        raise ValueError("Input does not appear to be annotations, and annotation extraction is disabled.")
-    
-    return annotations_list
-
-
+# Processing output 
 
 def parse_gff(gff_file):
     """
     Minimal GFF3 parser to extract features.
-    Yields tuples: (seq_id, source, type, start, end, strand, attributes_dict)
+    Yields: (seqid, source, type_, start, end, strand, attributes_dict)
     """
     open_func = gzip.open if gff_file.endswith(".gz") else open
     with open_func(gff_file, "rt") as fh:
@@ -298,51 +312,125 @@ def parse_gff(gff_file):
                     attr_dict[key] = value
             yield seqid, source, type_, int(start), int(end), strand, attr_dict
 
-
-def create_genbank_from_inputs(input_file, gff_file, genome_fasta, selected_ids, output_genbank, id_attribute="ID", from_annotations=False):
+def create_genbank_from_inputs(result_dict, selected_ids, id_attribute="ID", from_annotations=False):
     """
     Create a GenBank file with selected genes from either:
-    - annotations (.faa): builds CDS-only GenBank
-    - genome input (.fa/.gb + .gff): builds full GenBank with selected features
+    - From annotations (.faa): builds CDS-only GenBank
+    - From genome input (.fa/.gb + .gff): builds full GenBank with selected features
     """
-    output_genbank = Path(output_genbank)
-
     if from_annotations:
-        # From .faa input → CDS-only GenBank
-        records = list(SeqIO.parse(input_file, "fasta"))
+        # Parse .faa file and filter sequences
+        records = list(SeqIO.parse(result_dict['faa_path'], "fasta"))
         filtered_records = [r for r in records if any(gid in r.id for gid in selected_ids)]
         for r in filtered_records:
             r.annotations["molecule_type"] = "DNA"
-        SeqIO.write(filtered_records, output_genbank, "genbank")
+        if not filtered_records:
+            print("Warning: No matching records found in .faa input.")
+        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
 
     else:
-        # Parse genome fasta
-        genome = SeqIO.to_dict(SeqIO.parse(genome_fasta, "fasta"))
-
-        # Build new SeqRecords with selected features
-        record_dict = {k: SeqRecord(seq=v.seq, id=v.id, name=v.name, description="", annotations={"molecule_type": "DNA"})
-                       for k, v in genome.items()}
-
-        for seqid, source, type_, start, end, strand, attr in parse_gff(gff_file):
+        # Parse genome FASTA
+        genome = SeqIO.to_dict(SeqIO.parse(result_dict['genome_path'], "fasta"))
+        record_dict = {
+            f"{result_dict['ide']}__{k}": SeqRecord(seq=v.seq, id=v.id, name=v.name, description="", annotations={"molecule_type": "DNA"})
+            for k, v in genome.items()
+        }
+        # Parse GFF and add matching features
+        for seqid, source, type_, start, end, strand, attr in parse_gff(result_dict['gff_path']):
             if id_attribute not in attr:
                 continue
             feature_id = attr[id_attribute]
+            match = False
             if isinstance(feature_id, str):
                 match = any(gid == feature_id for gid in selected_ids)
-            else:
-                match = any(gid in feature_id for gid in selected_ids)
+                if match:
+                    location = FeatureLocation(start - 1, end, strand=1 if strand == "+" else -1)
+                    qualifiers = {k: [v] for k, v in attr.items()}
+                    feature = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
+                    record_dict[seqid].features.append(feature)
+        return record_dict
 
-            if not match or seqid not in record_dict:
+        # Write only records that have features
+        filtered_records = [r for r in record_dict.values() if r.features]
+        if not filtered_records:
+            print("Warning: No matching features found. GenBank file will be empty.")
+        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
+
+
+def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=False):
+    """
+    Create a GenBank file with selected genes from either:
+    - From annotations (.faa): builds CDS-only GenBank
+    - From genome input (.fa/.gb + .gff): builds full GenBank with selected features, including /translation
+    """
+    # Load translations from .faa
+    translation_dict = {
+        rec.id: str(rec.seq)
+        for rec in SeqIO.parse(result_dict['faa_path'], "fasta")
+    }
+
+    # Load hits file and build feature metadata dictionary
+    hits_df = pd.read_csv(result_dict['filt_hits'], sep='\t')  # auto-detects separator
+    hits_dict = dict(zip(hits_df['query'], hits_df['subject']))
+    selected_ids = set(hits_dict.keys())
+
+    print(hits_dict)
+    if from_annotations:
+        # Filter only selected translations
+        filtered_records = [
+            rec for rec in SeqIO.parse(result_dict['faa_path'], "fasta")
+            if any(gid in rec.id for gid in selected_ids)
+        ]
+        for rec in filtered_records:
+            rec.annotations["molecule_type"] = "DNA"
+        if not filtered_records:
+            print("Warning: No matching records found in .faa input.")
+        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
+
+    else:
+        # Load genome and initialize record dict
+        genome = SeqIO.to_dict(SeqIO.parse(result_dict['genome_path'], "fasta"))
+        record_dict = {
+            f"{result_dict['ide']}__{k}": SeqRecord(
+                seq=v.seq,
+                id=v.id,
+                name=v.name,
+                description="",
+                annotations={"molecule_type": "DNA"}
+            )
+            for k, v in genome.items()
+        }
+
+        # Parse GFF and build features
+        for seqid, source, type_, start, end, strand, attr in parse_gff(result_dict['gff_path']):
+            if id_attribute not in attr:
+                continue
+            feature_id = attr[id_attribute]
+            if not isinstance(feature_id, str):
+                continue
+            if feature_id not in selected_ids or seqid not in record_dict:
                 continue
 
             location = FeatureLocation(start - 1, end, strand=1 if strand == "+" else -1)
             qualifiers = {k: [v] for k, v in attr.items()}
-            feat = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
-            record_dict[seqid].features.append(feat)
 
-        # Write only records with features
+            # Add /translation if available
+            if feature_id in translation_dict:
+                qualifiers["translation"] = [translation_dict[feature_id]]
+
+            # Add /gene, /locus_tag, /protein_id if available
+            if feature_id in hits_dict:
+                for key in ["gene", "locus_tag", "protein_id"]:
+                    qualifiers[key] = [hits_dict[feature_id]]
+
+            feature = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
+            record_dict[seqid].features.append(feature)
+
+        # Write only records that have features
         filtered_records = [r for r in record_dict.values() if r.features]
-        SeqIO.write(filtered_records, output_genbank, "genbank")
+        if not filtered_records:
+            print("Warning: No matching features found. GenBank file will be empty.")
+        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
 
 
 # CLINKER 

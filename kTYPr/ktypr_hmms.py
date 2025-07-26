@@ -110,7 +110,7 @@ def retrieve_hits(seqs_path, hmms_path,
     return hits_df
 
 
-def apply_bitscore_thresholds(df, thrs):
+def apply_bitscore_thresholds(df, thrs, _rfbBDAC=True):
     filter_col = []
     for _, row in df.iterrows():
         if row['bitscore']>thrs.get(row['subject'], 0):
@@ -157,7 +157,7 @@ def calculate_hits_and_bitscores(df, subject_to_ktypes, ktype_gene_counts, _rfbB
             if ktype not in rs:
                 rs[ktype] = [ktype_gene_counts[ktype], 0, 0, 0]   # Start the results counter
             # Update hit count and bitscore for the corresponding ktype
-            rs[ktype][1] += 1   # Add gene to count of genes 
+            rs[ktype][1] += 1   # Add gene to count of gene, rfb genes should count for completeness but not for bitscore 
             if _rfbBDAC:
                 rs[ktype][2] += bitscore  # Add up bitscore independently on the hit
             else:

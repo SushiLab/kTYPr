@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from ktypr_main import ktypr
+from ktypr.ktypr_main import ktypr
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run kTYPr on one or multiple genome or annotation set.")

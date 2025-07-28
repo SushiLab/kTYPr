@@ -1,6 +1,8 @@
 name: ktypr_env
 channels:
   - defaults
+  - bioconda
+  - conda-forge
 dependencies:
   - python=3.10
   - pip
@@ -9,4 +11,4 @@ dependencies:
     - pandas==2.2.3
     - pyrodigal==3.4.1
     - clinker==0.0.31
-    - -e .
+    - .

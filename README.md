@@ -1,6 +1,6 @@
 # 🧬 kTYPr
 
-**kTYPr** is a command-line tool for predicting K-antigen type classifications in Escherichia coli using HMM-based annotation profiling. It supports both whole-genome and flanking-region prediction modes and can be run in parallel on multiple files.
+**kTYPr** is a command-line tool for predicting K-antigen type classifications in *Escherichia coli* using HMM-based annotation profiling. It supports both whole-genome and flanking-region prediction modes and can be run in parallel on multiple files.
 
 ---
 
@@ -23,6 +23,8 @@ To install in **editable/development mode** (so changes to the code apply immedi
 ```bash
 pip install -e .
 ```
+
+Note this installation can be done within an existing conda or venv environment.
 
 ### Option 2 – Use a Conda environment (safer, isolated setup)
 
@@ -79,16 +81,16 @@ ktypr -i <input_path>
 
 ## 🧪 Example
 
-Run K-type prediction for whole-genomes on a folder of `.faa` files using all available cores and producing clinker reports, saving results to a custom folder:
+Run K-type prediction for whole-genomes (`--mode 1`) on a folder containing `.fa` files using all available cores (`-n -1`) and producing clinker reports (`-c`), saving results to a custom folder (`-o results/`) and printing in the terminal the running processes (`-v`):
 
 ```bash
-ktypr -i test/genomes/fasta -o results/ --mode 1 -n -1 -c
+ktypr -i ./test/genomes/fasta -o ./results/ --mode 1 -n -1 -c -v
 ```
 
-Run in flanking mode using a text file of paths using a custom flanking size:
+Run in flanking mode using a text file of paths using a custom flanking size and with a custom prefix to name all the files:
 
 ```bash
-ktypr -i genome_list.txt --mode 0 --flank 25000 -p ecoli_run
+ktypr -i genome_list.txt --flank 25000 -p ecoli_run
 ```
 
 ---
@@ -103,7 +105,7 @@ For each input genome, kTYPr creates in a folder per genome:
 | `.faa`                  | Protein sequences of all annotated genes in FASTA format.                                                 |
 | `_flanks.faa`           | Protein sequences extracted from the flanking region around the **kpsC** gene (only in flanking mode).    |
 | `_hits.tsv.gz`          | Compressed TSV file listing all detected HMM hits (annotations) with their scores and locations.          |
-| `_filtered_hits.tsv.gz` | Compressed TSV file with filtered HMM hits after applying score and coverage thresholds.                  |
+| `_filtered_hits.tsv.gz` | Compressed TSV file with filtered HMM hits after applying score thresholds.                  |
 | `_ktypr.tsv`            | Summary TSV file containing the final K-antigen type prediction results for the genome or annotation set. |
 | `.gbk`                  | Full genome file with annotations in GenBank format, optionally including re-annotation results.          |
 | `clink.html`            | Clinker HTML report against the best K-antigen type predicted                                             |
@@ -140,6 +142,12 @@ For further exploration, and forF each known K-type in our database  the followi
 | `<KTYPE>_genes_in_genome` | Number of expected genes found in the genome.                         |
 | `<KTYPE>_acc_bitscore`    | Sum of HMM match bitscores for this K-type’s genes.                   |
 | `<KTYPE>_is_complete`     | Whether the K-type is fully present in the genome (`1`) or not (`0`). |
+
+As example of the collection output, you can find in test/output the results of running:
+
+```bash
+ktypr -i ./test/genomes/fasta -v -o ./test/output/ -p run1_
+```
 
 ---
 

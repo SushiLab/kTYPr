@@ -5,7 +5,7 @@ import shutil
 import zipfile
 import pyrodigal
 import pandas as pd
-import ktypr_hmms as kh
+from . import ktypr_hmms as kh
 from joblib import Parallel, delayed
 from Bio import SeqIO
 from Bio.Seq import Seq

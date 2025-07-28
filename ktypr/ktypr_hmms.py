@@ -4,7 +4,7 @@ import gzip
 import pyhmmer
 import collections
 import pandas as pd
-import ktypr_hmms as kh
+from . import ktypr_hmms as kh
 from itertools import chain
 from pyhmmer.easel import SequenceFile, Alphabet
 

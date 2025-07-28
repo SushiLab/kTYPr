@@ -6,7 +6,8 @@ install_requires = [
     "pyhmmer==0.10.11",
     "pandas==2.2.3",
     "pyrodigal==3.4.1",
-    "clinker"
+    "joblib==1.4.2",
+    "clinker==0.0.31"
 ]
 
 def read(filename):
@@ -21,6 +22,7 @@ setup(
     description = ("kTYPr: predicting K-antigen classifications using HMM-based annotation profiling"),
     license = "GPLv3",
     include_package_data=True,
+    package_data={'ktypr': ['data/*.tsv', 'data/hmms/*.hmm', 'data/reference_clusters.zip']},
     packages=['ktypr'],
     install_requires=install_requires,
     long_description=long_description,

@@ -2,8 +2,8 @@ import pandas as pd
 import os, sys
 import glob
 import pickle
-import ktypr_hmms as kh
-import ktypr_utils as ku
+from . import ktypr_hmms as kh
+from . import ktypr_utils as ku
 from pathlib import Path
 from joblib import Parallel, delayed
 from datetime import datetime

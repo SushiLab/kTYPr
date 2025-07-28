@@ -73,7 +73,7 @@ ktypr -i <input_path>
 | `-p`, `--prefix`     | **Optional prefix** to prepend to all output file names. If not provided, the base name of each input genome or annotation file will be used as the prefix.                                                                                                                |
 | `-i`, `--input`      | **Input path**, which can be:<br>• A genome file (`.fasta`, `.gbk`, etc.)<br>• An annotation file (`.faa`)<br>• A directory containing such files<br>• A `.txt` file listing paths to input files. This is a required argument.                                            |
 | `-r`, `--reannotate` | Flag to **force re-annotation** of genes using Prodigal, even if annotations are already present in the genome file. Useful to ensure consistent annotations when needed.         
-| `-c`, `--clinker`    | Flag to produce clinker reports. This can be computationally expensive, so it does not run by default.                                                                                                |
+| `-c`, `--clinker`    | Flag to produce [clinker](https://github.com/gamcil/clinker) reports. This can be computationally expensive, so it does not run by default.                                                                                                |
 | `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                                                                                                     |
                                                                          |
 
@@ -105,10 +105,10 @@ For each input genome, kTYPr creates in a folder per genome:
 | `.faa`                  | Protein sequences of all annotated genes in FASTA format.                                                 |
 | `_flanks.faa`           | Protein sequences extracted from the flanking region around the **kpsC** gene (only in flanking mode).    |
 | `_hits.tsv.gz`          | Compressed TSV file listing all detected HMM hits (annotations) with their scores and locations.          |
-| `_filtered_hits.tsv.gz` | Compressed TSV file with filtered HMM hits after applying score thresholds.                  |
+| `_filtered_hits.tsv.gz` | Compressed TSV file with filtered HMM hits after applying score thresholds.                               |
 | `_ktypr.tsv`            | Summary TSV file containing the final K-antigen type prediction results for the genome or annotation set. |
 | `.gbk`                  | Full genome file with annotations in GenBank format, optionally including re-annotation results.          |
-| `clink.html`            | Clinker HTML report against the best K-antigen type predicted                                             |
+| `clink.html`            | [Clinker](https://github.com/gamcil/clinker) HTML report against the best K-antigen type predicted.        |
 
 ### Collection results
 
@@ -143,7 +143,7 @@ For further exploration, and forF each known K-type in our database  the followi
 | `<KTYPE>_acc_bitscore`    | Sum of HMM match bitscores for this K-type’s genes.                   |
 | `<KTYPE>_is_complete`     | Whether the K-type is fully present in the genome (`1`) or not (`0`). |
 
-As example of the collection output, you can find in test/output the results of running:
+As example of the collection output, you can find in [test/output](test/output) the results of running:
 
 ```bash
 ktypr -i ./test/genomes/fasta -v -o ./test/output/ -p run1_

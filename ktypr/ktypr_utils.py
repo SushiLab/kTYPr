@@ -459,7 +459,3 @@ def get_clinker(results, verbose=True):
                         print(f"Removed folder: {reference_dir}")
             except Exception as e:
                 print(f"Failed to remove folder {reference_dir}: {e}")
-
-            
-
-

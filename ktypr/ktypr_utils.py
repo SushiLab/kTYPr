@@ -1,7 +1,10 @@
 import os
 import glob
 import gzip
+import shutil
+import zipfile
 import pyrodigal
+import subprocess
 import pandas as pd
 import ktypr_hmms as kh
 from joblib import Parallel, delayed
@@ -10,7 +13,6 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from pathlib import Path
-import zipfile
 
 ### GLOBAL VARIABLES
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -256,7 +258,7 @@ def prepare_single_input(genome_path, outDir, prefix='',
         'hits': str(outdir / f"{identifier}_hits.tsv.gz"),
         'filt_hits': str(outdir / f"{identifier}_filtered_hits.tsv.gz"),
         'classification': str(outdir / f"{identifier}_ktypr.tsv"),
-        'clinker': str(outdir / f"{identifier}_clinker.zip"),
+        'clinker': str(outdir / f"{identifier}_clink.html"),
         'annotated': 0,
         'done': 0
     }
@@ -312,50 +314,6 @@ def parse_gff(gff_file):
                     attr_dict[key] = value
             yield seqid, source, type_, int(start), int(end), strand, attr_dict
 
-def create_genbank_from_inputs(result_dict, selected_ids, id_attribute="ID", from_annotations=False):
-    """
-    Create a GenBank file with selected genes from either:
-    - From annotations (.faa): builds CDS-only GenBank
-    - From genome input (.fa/.gb + .gff): builds full GenBank with selected features
-    """
-    if from_annotations:
-        # Parse .faa file and filter sequences
-        records = list(SeqIO.parse(result_dict['faa_path'], "fasta"))
-        filtered_records = [r for r in records if any(gid in r.id for gid in selected_ids)]
-        for r in filtered_records:
-            r.annotations["molecule_type"] = "DNA"
-        if not filtered_records:
-            print("Warning: No matching records found in .faa input.")
-        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
-
-    else:
-        # Parse genome FASTA
-        genome = SeqIO.to_dict(SeqIO.parse(result_dict['genome_path'], "fasta"))
-        record_dict = {
-            f"{result_dict['ide']}__{k}": SeqRecord(seq=v.seq, id=v.id, name=v.name, description="", annotations={"molecule_type": "DNA"})
-            for k, v in genome.items()
-        }
-        # Parse GFF and add matching features
-        for seqid, source, type_, start, end, strand, attr in parse_gff(result_dict['gff_path']):
-            if id_attribute not in attr:
-                continue
-            feature_id = attr[id_attribute]
-            match = False
-            if isinstance(feature_id, str):
-                match = any(gid == feature_id for gid in selected_ids)
-                if match:
-                    location = FeatureLocation(start - 1, end, strand=1 if strand == "+" else -1)
-                    qualifiers = {k: [v] for k, v in attr.items()}
-                    feature = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
-                    record_dict[seqid].features.append(feature)
-        return record_dict
-
-        # Write only records that have features
-        filtered_records = [r for r in record_dict.values() if r.features]
-        if not filtered_records:
-            print("Warning: No matching features found. GenBank file will be empty.")
-        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
-
 
 def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=False):
     """
@@ -370,11 +328,15 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
     }
 
     # Load hits file and build feature metadata dictionary
-    hits_df = pd.read_csv(result_dict['filt_hits'], sep='\t')  # auto-detects separator
-    hits_dict = dict(zip(hits_df['query'], hits_df['subject']))
+    hits_df  = result_dict['max_hits']
+    hits_dict = (
+        hits_df
+        .groupby('query')['subject']
+        .agg(lambda x: ';'.join(map(str, x)))
+        .to_dict()
+        )    
     selected_ids = set(hits_dict.keys())
 
-    print(hits_dict)
     if from_annotations:
         # Filter only selected translations
         filtered_records = [
@@ -435,15 +397,64 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
 
 # CLINKER 
 
-def get_clinker(outDir, ks_to_extract):
+def get_clinker(results, verbose=True):
     """
-    Extract specific K-antigen clusters from a zipped archive of genbanks that can be then used with Clinker. 
-    ks_to_extract is a set of substrings to search for in the filenames (eg. {"K1_", "K2_"}). 
-    """
+    Extract specific K-antigen clusters from a zipped archive of GenBanks,
+    which can then be used with clinker.
 
-    archive_path = f"{SCRIPT_DIR}/data/clinker_clusters.zip"
+    `results` can be:
+      - a dict with keys 'best' and 'clinker_dir'
+      - a list of such dicts
+
+    The function looks for GenBank files in the archive whose name contains
+    the `best` identifier, and extracts them into the corresponding `clinker_dir`.
+    """
+    if isinstance(results, dict):
+        results = [results]  # make it a list of one item
+
+    # Extract sequentially
+    archive_path = f"{SCRIPT_DIR}/data/reference_clusters.zip"
+    print(archive_path)
     with zipfile.ZipFile(archive_path, 'r') as zipf:
-        for file in zipf.namelist():
-            if any(ks in file for ks in ks_to_extract):
-                zipf.extract(file, path=outDir)
-                print(f"Extracted: {file}")
+        for res in results:
+            ks = res['ktype']
+            out_dir = res['outdir']
+
+            # Ensure the output directory exists
+            os.makedirs(out_dir, exist_ok=True)
+
+            # Find matching files and extract
+            matched = [file for file in zipf.namelist() if f'{ks}_' in file]
+            for file in matched:
+                zipf.extract(file, path=out_dir)
+                if verbose:
+                    print(f"Extracted: {file} to {out_dir}")
+    
+    # Run the html production with clinker
+    for res in results:
+        original_gbk  = res['gbk_path']
+        reference_dir = Path(res['outdir']) / "reference_clusters"
+        if res['gff_path']:
+            if verbose:
+                print(f'Running clinker on {original_gbk}')
+            #os.system(f'cp {original_gbk} {reference_dir}')   # Copy 
+            #os.system(f'clinker {reference_dir}/*.gbk -p {res["clinker"]}')
+
+            shutil.copy(original_gbk, reference_dir)
+            cmd = ["clinker", f"{reference_dir}/*.gbk", "-p", res["clinker"]]
+            subprocess.run(cmd, check=True)
+
+            if verbose:
+                print(f'Clinker report in {res["clinker"]}')
+            
+            # Safely remove 
+            # try:
+            #     if reference_dir.exists() and reference_dir.is_dir():
+            #         shutil.rmtree(reference_dir)
+            #         print(f"Removed folder: {reference_dir}")
+            # except Exception as e:
+            #     print(f"Failed to remove folder {reference_dir}: {e}")
+
+            
+
+

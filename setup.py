@@ -1,3 +1,4 @@
+from pathlib import Path
 from setuptools import setup
 
 # Dependencies and other variables
@@ -8,6 +9,8 @@ install_requires = [
     "clinker"
 ]
 
+def read(filename):
+    return Path(filename).read_text(encoding='utf-8')
 long_description = read('README.md')
 
 setup(
@@ -18,7 +21,7 @@ setup(
     description = ("kTYPr: predicting K-antigen classifications using HMM-based annotation profiling"),
     license = "GPLv3",
     include_package_data=True,
-    packages=['kTYPr'],
+    packages=['ktypr'],
     install_requires=install_requires,
     long_description=long_description,
     long_description_content_type='text/markdown',

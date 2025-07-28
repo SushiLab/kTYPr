@@ -1,0 +1,12 @@
+name: ktypr_env
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - pyhmmer==0.10.11
+    - pandas==2.2.3
+    - pyrodigal==3.4.1
+    - clinker==0.0.31
+    - -e .

@@ -20,7 +20,8 @@ thrs_dict        = kh.load_bitscore_thrs(cutoffs_path)
 ktype_dict, subject_to_ktypes, ktype_gene_counts = kh.get_ktypes_dicts(definition_path)
 kanalysis_columns, korder                        = kh.get_ktypr_columns_and_order(ktype_dict)
 
-### MAIN
+# Profiling functions
+
 def _profile_genome_core(faa_path,
                          result_dict,
                          hmms_path,
@@ -71,6 +72,7 @@ def _profile_genome_core(faa_path,
             fo.write('\t'.join(str(i) for i in results) + '\n')
 
     # Update
+    result_dict['max_hits'] = max_hits
     result_dict['done'] = 1
     result_dict['ktype'] = best
 
@@ -131,11 +133,11 @@ def profile_genome_from_aa_annotations_flanking(result_dict,
                                     classification_label='No KpsC identified',
                                     skip_hits=True)
 
-# NEW
 
 def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=True, 
                          reannotate=False, meta=False, flanking=False, flank=30000,
-                         multi=False, _rfbBDAC=False, append_fil=None, verbose=True):
+                         multi=False, _rfbBDAC=False, append_fil=None, clinker=True, 
+                         verbose=True):
     """
     Annotates a genome or annotation file and profiles it for K-type prediction.
     """    
@@ -160,6 +162,7 @@ def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=Tru
             _rfbBDAC=_rfbBDAC
         )
     else:
+        result['faa_flank_path'] = None
         if verbose:
             print('Profiling genome with whole-genome annotations...')
         profile_genome_from_aa_annotations(
@@ -168,36 +171,87 @@ def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=Tru
             _rfbBDAC=_rfbBDAC
         )
 
-    # Optional: Create GenBank in genome folder
-    if result['gff_path'] is not None and 1==0:
-        print('Creating GenBank file...')
+    # Report genbank and clinker
+    if result['gff_path'] is not None:
+        if verbose:
+            print('Creating GenBank file...')
         ku.create_genbank_from_inputs(result_dict=result,
-            selected_ids=[],  # or pass specific gene IDs if needed
             id_attribute="ID",
             from_annotations=False)
-
+                
     return result
 
+# MAIN FUNCTION
 
-def ktypr(inFile, outDir, prefix=None,
-          flanking=False, flank=30000, reannotate=False, multi=False, _rfbBDAC=False, 
-          parallel=True, n_jobs=10, meta=False, verbose=False):
+def ktypr(inFile, outDir, prefix='',
+          flanking=False, flank=30000, 
+          reannotate=False, multi=False, _rfbBDAC=False, 
+          parallel=True, n_jobs=10, 
+          meta=False, clinker=True, 
+          verbose=False):
     """
-    Main function to run ktypr on a collection of genomes
+    Main function to run ktypr on one or multiple genomes.
+
+    Parameters
+    ----------
+    inFile : str or Path or list
+        Input FASTA or GENBANK file(s), list with paths, or directory containing genome sequences to process.
+    outDir : str or Path
+        Output directory where results and intermediate files will be saved.
+    prefix : str, optional
+        Prefix for output file names. If multiple genomes are processed, this prefix is 
+        prepended to resulting files.
+    flanking : bool, default=False
+        Whether to include and analyze flanking genes (+-flank) around detected loci.
+    flank : int, default=30000
+        Number of base pairs to include upstream and downstream when flanking=True.
+    reannotate : bool, default=False
+        If True, forces re-annotation of genomes even if previous annotations are found such as in a full genbank file.
+    multi : bool, default=False
+        If True, allows for finding more than one cluster in flanking mode, for example if multiple kpsC hits are found. 
+    _rfbBDAC : bool, default=False
+        Experimental option to account for the scoring genes rfbB, D, A, and C.
+    parallel : bool, default=True
+        Whether to run genome profiling in parallel using joblib when multiple genomes are provided.
+    n_jobs : int, default=10
+        Number of parallel workers to use if parallel=True.
+    meta : bool, default=False
+        Whether the input genomes are metagenome-assembled (MAGs) or incomplete drafts, important in the annotation step as
+        it will set meta=True for the pyrodigal gene calling. 
+    clinker: bool, default=True
+        Runs a clinker analysis with the produced genbank against the predicted k-type.
+    verbose : bool, default=False
+        If True, prints progress and intermediate information to stdout.
+
+    Output
+    -----
+    One folder per genome including annotations, clinker
+
+    Notes
+    -----
+    This function performs annotation and K-type profiling on a collection of genome 
+    sequences. When multiple input files are provided, results are appended to a single
+    TSV file. Parallel processing is supported via joblib.
     """
+
     # Resolve input file(s) and check they are valid
     input_paths = ku.resolve_paths(inFile, verbose=verbose)
     if verbose:
         print(f"Resolved input paths: {input_paths}")
 
-    if len(input_paths)>1:
-        if not prefix:
-            append_fil = os.path.join(outDir, 'ktypr_results.tsv')
-            prefix = ''
+    if len(input_paths) > 1:
+        os.makedirs(outDir, exist_ok=True)
+        if prefix:
+            append_fil = os.path.join(outDir, f'{prefix}results_ktypr.tsv')
         else:
-            append_fil = os.path.join(outDir, f'{prefix}results.tsv')
+            append_fil = os.path.join(outDir, 'results_ktypr.tsv')
+            prefix = ''  # default to empty string if not given
+
+        # Write header to the file
         with open(append_fil, 'w') as fo:
-            fo.write('\t'.join(kanalysis_columns)+'\n')
+            fo.write('\t'.join(kanalysis_columns) + '\n')
+    else:
+        append_fil = None
 
 
     # Annotate and profile each genome
@@ -236,7 +290,9 @@ def ktypr(inFile, outDir, prefix=None,
                           append_fil=append_fil,
                           verbose=verbose
                      )   
-    return results
 
-if __name__ == "__main__":
-    a = 2
+    # Clinker collectively
+    if clinker:
+        ku.get_clinker(results, verbose=verbose)
+
+    return results

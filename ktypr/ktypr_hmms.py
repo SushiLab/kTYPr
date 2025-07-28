@@ -111,6 +111,7 @@ def retrieve_hits(seqs_path, hmms_path,
 
 
 def apply_bitscore_thresholds(df, thrs, _rfbBDAC=True):
+    """ Filters out results not passing the cut-offs. """
     filter_col = []
     for _, row in df.iterrows():
         if row['bitscore']>thrs.get(row['subject'], 0):
@@ -123,14 +124,13 @@ def apply_bitscore_thresholds(df, thrs, _rfbBDAC=True):
 
 
 def filter_max_bitscore(df, group_by='subject', by='bitscore'):
-    # Find the index of the maximum bitscore for each query
-    max_bitscore_idx = df.groupby(group_by)[by].idxmax()
-    # Filter the DataFrame to keep only the rows with maximum bitscore per query
-    filtered_df = df.loc[max_bitscore_idx].reset_index(drop=True)
+    """ Filter the DataFrame to keep only the rows with maximum bitscore per query """
+    max_bitscore_idx = df.groupby(group_by)[by].idxmax()   # Find max
+    filtered_df = df.loc[max_bitscore_idx].reset_index(drop=True) 
     return filtered_df
 
 
-def calculate_hits_and_bitscores(df, subject_to_ktypes, ktype_gene_counts, _rfbBDAC=True):
+def calculate_hits_and_bitscores(df, subject_to_ktypes, ktype_gene_counts, _rfbBDAC=False):
     """
     Example:
     subject_to_ktypes = {'K1a': ['K1', 'K2'], 'K1b': ['K1'], 'K2a': ['K2'], 'RfbB':['K1']}
@@ -236,6 +236,7 @@ def get_multiple_best_k(ktype_analysis):
 ### Specific functions for flanking profiling
 
 def profile_KpsC(seqs_path, hmm_path=kpsc_hmm_path, multi=False):
+    """ Profiles for KpsC used as marker gene for the cluster presence """
     df = retrieve_hits(seqs_path, hmm_path)
     if df.empty:
         return False

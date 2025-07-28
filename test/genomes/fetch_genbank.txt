@@ -1,4 +1,0 @@
-/nfs/home/smiravet/kTYPr/test/genomes/genbank/GCF_000010485.1_ASM1048v1_genomic.gb
-/nfs/home/smiravet/kTYPr/test/genomes/genbank/GCF_000025745.1_ASM2574v1_genomic.gb
-/nfs/home/smiravet/kTYPr/test/genomes/genbank/GCF_000009565.1_ASM956v1_genomic.gb
-/nfs/home/smiravet/kTYPr/test/genomes/genbank/GCF_000019645.1_ASM1964v1_genomic.gb

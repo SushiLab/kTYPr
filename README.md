@@ -1,6 +1,6 @@
 # 🧬 kTYPr
 
-**kTYPr** is a command-line tool for predicting K-antigen type classifications in bacterial genomes using HMM-based annotation profiling. It supports both whole-genome and flanking-region prediction modes and can be run in parallel on multiple files.
+**kTYPr** is a command-line tool for predicting K-antigen type classifications in Escherichia coli using HMM-based annotation profiling. It supports both whole-genome and flanking-region prediction modes and can be run in parallel on multiple files.
 
 ---
 

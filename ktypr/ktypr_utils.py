@@ -4,7 +4,6 @@ import gzip
 import shutil
 import zipfile
 import pyrodigal
-import subprocess
 import pandas as pd
 import ktypr_hmms as kh
 from joblib import Parallel, delayed
@@ -13,6 +12,8 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from pathlib import Path
+from collections import defaultdict
+
 
 ### GLOBAL VARIABLES
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -350,8 +351,12 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
         SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
 
     else:
-        # Load genome and initialize record dict
-        genome = SeqIO.to_dict(SeqIO.parse(result_dict['genome_path'], "fasta"))
+        # Determine file format and parse
+        genome_path = result_dict['genome_path']
+        genome_suffix = Path(genome_path).suffix.lower()
+        fmt = "genbank" if genome_suffix in [".gbk", ".gb", ".genbank"] else "fasta"
+        genome = SeqIO.to_dict(SeqIO.parse(genome_path, fmt))
+
         record_dict = {
             f"{result_dict['ide']}__{k}": SeqRecord(
                 seq=v.seq,
@@ -394,7 +399,6 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
             print("Warning: No matching features found. GenBank file will be empty.")
         SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
 
-
 # CLINKER 
 
 def get_clinker(results, verbose=True):
@@ -414,7 +418,6 @@ def get_clinker(results, verbose=True):
 
     # Extract sequentially
     archive_path = f"{SCRIPT_DIR}/data/reference_clusters.zip"
-    print(archive_path)
     with zipfile.ZipFile(archive_path, 'r') as zipf:
         for res in results:
             ks = res['ktype']
@@ -437,23 +440,25 @@ def get_clinker(results, verbose=True):
         if res['gff_path']:
             if verbose:
                 print(f'Running clinker on {original_gbk}')
-            #os.system(f'cp {original_gbk} {reference_dir}')   # Copy 
-            #os.system(f'clinker {reference_dir}/*.gbk -p {res["clinker"]}')
 
+            # Copy and run clinker
             shutil.copy(original_gbk, reference_dir)
-            cmd = ["clinker", f"{reference_dir}/*.gbk", "-p", res["clinker"]]
-            subprocess.run(cmd, check=True)
+            cmd = f'clinker {reference_dir}/*.gbk -p {res["clinker"]}'
 
             if verbose:
+                os.system(cmd)
                 print(f'Clinker report in {res["clinker"]}')
-            
+            else:
+                os.system(f"{cmd} > /dev/null 2>&1")
+
             # Safely remove 
-            # try:
-            #     if reference_dir.exists() and reference_dir.is_dir():
-            #         shutil.rmtree(reference_dir)
-            #         print(f"Removed folder: {reference_dir}")
-            # except Exception as e:
-            #     print(f"Failed to remove folder {reference_dir}: {e}")
+            try:
+                if reference_dir.exists() and reference_dir.is_dir():
+                    shutil.rmtree(reference_dir)
+                    if verbose:
+                        print(f"Removed folder: {reference_dir}")
+            except Exception as e:
+                print(f"Failed to remove folder {reference_dir}: {e}")
 
             
 

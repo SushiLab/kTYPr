@@ -77,6 +77,12 @@ ktypr -i <input_path>
 | `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                                                                                                     |
                                                                          |
 
+### Genome annotation considerations
+
+Please note the following aspects:
+- kTYPr accepts annotated genomes (as `.faa` or `.gbk`), in this case, gene calling will not be run. Use `-r` to force the reannotation (only if genbank provided). 
+- We use [pyrodigal](https://github.com/althonos/pyrodigal) in `single` mode for gene annotation by default. This can raise errors when the sequence is not long enough for training a gene caller specific for the input genome (min. length is 20,000 bases). In these cases, `meta` mode will be activated by default; take into account this can produce less accurate gene sequences (shorter/longer than they should). 
+
 ---
 
 ## 🧪 Example

@@ -37,6 +37,7 @@ def _profile_genome_core(faa_path,
     if skip_hits:
         best = classification_label or 'No KpsC identified'
         hits = {}
+        max_hits = None
     else:
         # Run HMMs
         hits_df = kh.retrieve_hits(faa_path, hmms_path)
@@ -177,7 +178,8 @@ def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=Tru
             print('Creating GenBank file...')
         ku.create_genbank_from_inputs(result_dict=result,
             id_attribute="ID",
-            from_annotations=False)
+            from_annotations=False, 
+            verbose=verbose)
                 
     return result
 
@@ -256,7 +258,7 @@ def ktypr(inFile, outDir, prefix='',
 
     # Annotate and profile each genome
     if parallel and n_jobs!=1:
-        results = Parallel(n_jobs=n_jobs)(
+        results = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
                       delayed(annotate_and_profile)(
                           genome_path=genome_path,
                           outDir=outDir,

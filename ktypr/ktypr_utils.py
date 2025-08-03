@@ -6,7 +6,6 @@ import zipfile
 import pyrodigal
 import pandas as pd
 from . import ktypr_hmms as kh
-from joblib import Parallel, delayed
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -30,9 +29,12 @@ def set_pyrodigal_model(records, meta=False, verbose=True):
         if verbose:
             print("Setting up Pyrodigal in genomic mode")
         full_genome_seq = b''.join([bytes(record.seq) for record in records])
-        orf_finder = pyrodigal.GeneFinder()
-        orf_finder.train(full_genome_seq)
-        return orf_finder
+        if len(full_genome_seq) < 20000:
+            return set_pyrodigal_model(records=None, meta=True, verbose=verbose)           # To avoid <20kb error
+        else:
+            orf_finder = pyrodigal.GeneFinder()
+            orf_finder.train(full_genome_seq)
+            return orf_finder
 
 
 def get_faa_and_gff(fil, outfaa, outgff, ide, meta=False, verbose=True):
@@ -316,7 +318,7 @@ def parse_gff(gff_file):
             yield seqid, source, type_, int(start), int(end), strand, attr_dict
 
 
-def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=False):
+def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=False, verbose=True):
     """
     Create a GenBank file with selected genes from either:
     - From annotations (.faa): builds CDS-only GenBank
@@ -329,75 +331,80 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
     }
 
     # Load hits file and build feature metadata dictionary
-    hits_df  = result_dict['max_hits']
-    hits_dict = (
-        hits_df
-        .groupby('query')['subject']
-        .agg(lambda x: ';'.join(map(str, x)))
-        .to_dict()
-        )    
-    selected_ids = set(hits_dict.keys())
+    if result_dict['max_hits'] is not None and not result_dict['max_hits'].empty:
+        hits_df  = result_dict['max_hits']
+        hits_dict = (
+            hits_df
+            .groupby('query')['subject']
+            .agg(lambda x: ';'.join(map(str, x)))
+            .to_dict()
+            )    
+        selected_ids = set(hits_dict.keys())
 
-    if from_annotations:
-        # Filter only selected translations
-        filtered_records = [
-            rec for rec in SeqIO.parse(result_dict['faa_path'], "fasta")
-            if any(gid in rec.id for gid in selected_ids)
-        ]
-        for rec in filtered_records:
-            rec.annotations["molecule_type"] = "DNA"
-        if not filtered_records:
-            print("Warning: No matching records found in .faa input.")
-        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
+        if from_annotations:
+            # Filter only selected translations
+            filtered_records = [
+                rec for rec in SeqIO.parse(result_dict['faa_path'], "fasta")
+                if any(gid in rec.id for gid in selected_ids)
+            ]
+            for rec in filtered_records:
+                rec.annotations["molecule_type"] = "DNA"
+            if not filtered_records and verbose:
+                print("Warning: No matching records found in .faa input.")
+            SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
 
+        else:
+            # Determine file format and parse
+            genome_path = result_dict['genome_path']
+            genome_suffix = Path(genome_path).suffix.lower()
+            fmt = "genbank" if genome_suffix in [".gbk", ".gb", ".genbank"] else "fasta"
+            genome = SeqIO.to_dict(SeqIO.parse(genome_path, fmt))
+
+            record_dict = {
+                f"{result_dict['ide']}__{k}": SeqRecord(
+                    seq=v.seq,
+                    id=v.id,
+                    name=v.name,
+                    description="",
+                    annotations={"molecule_type": "DNA"}
+                )
+                for k, v in genome.items()
+            }
+
+            # Parse GFF and build features
+            for seqid, source, type_, start, end, strand, attr in parse_gff(result_dict['gff_path']):
+                if id_attribute not in attr:
+                    continue
+                feature_id = attr[id_attribute]
+                if not isinstance(feature_id, str):
+                    continue
+                if feature_id not in selected_ids or seqid not in record_dict:
+                    continue
+
+                location = FeatureLocation(start - 1, end, strand=1 if strand == "+" else -1)
+                qualifiers = {k: [v] for k, v in attr.items()}
+
+                # Add /translation if available
+                if feature_id in translation_dict:
+                    qualifiers["translation"] = [translation_dict[feature_id]]
+
+                # Add /gene, /locus_tag, /protein_id if available
+                if feature_id in hits_dict:
+                    for key in ["gene", "locus_tag", "protein_id"]:
+                        qualifiers[key] = [hits_dict[feature_id]]
+
+                feature = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
+                record_dict[seqid].features.append(feature)
+
+            # Write only records that have features
+            filtered_records = [r for r in record_dict.values() if r.features]
+            if not filtered_records and verbose:
+                print("Warning: No matching features found. GenBank file will be empty.")
+            SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
     else:
-        # Determine file format and parse
-        genome_path = result_dict['genome_path']
-        genome_suffix = Path(genome_path).suffix.lower()
-        fmt = "genbank" if genome_suffix in [".gbk", ".gb", ".genbank"] else "fasta"
-        genome = SeqIO.to_dict(SeqIO.parse(genome_path, fmt))
+        if verbose:
+            print(f"No genbank produced for {result_dict['genome_path']}. No KpsC found, try in whole-genome mode.")
 
-        record_dict = {
-            f"{result_dict['ide']}__{k}": SeqRecord(
-                seq=v.seq,
-                id=v.id,
-                name=v.name,
-                description="",
-                annotations={"molecule_type": "DNA"}
-            )
-            for k, v in genome.items()
-        }
-
-        # Parse GFF and build features
-        for seqid, source, type_, start, end, strand, attr in parse_gff(result_dict['gff_path']):
-            if id_attribute not in attr:
-                continue
-            feature_id = attr[id_attribute]
-            if not isinstance(feature_id, str):
-                continue
-            if feature_id not in selected_ids or seqid not in record_dict:
-                continue
-
-            location = FeatureLocation(start - 1, end, strand=1 if strand == "+" else -1)
-            qualifiers = {k: [v] for k, v in attr.items()}
-
-            # Add /translation if available
-            if feature_id in translation_dict:
-                qualifiers["translation"] = [translation_dict[feature_id]]
-
-            # Add /gene, /locus_tag, /protein_id if available
-            if feature_id in hits_dict:
-                for key in ["gene", "locus_tag", "protein_id"]:
-                    qualifiers[key] = [hits_dict[feature_id]]
-
-            feature = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
-            record_dict[seqid].features.append(feature)
-
-        # Write only records that have features
-        filtered_records = [r for r in record_dict.values() if r.features]
-        if not filtered_records:
-            print("Warning: No matching features found. GenBank file will be empty.")
-        SeqIO.write(filtered_records, result_dict['gbk_path'], "genbank")
 
 # CLINKER 
 

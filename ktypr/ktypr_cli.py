@@ -34,8 +34,8 @@ def parse_args():
     #                     )
     # )    # This could be used to get rid of -m
 
-    parser.add_argument("-n", "--n-jobs", type=int, default=-1,
-                        help="Number of parallel jobs (default: -1 = use all cores, 1 = disable parallelism, any other number = number of cores to use)"
+    parser.add_argument("-n", "--n-jobs", type=int, default=4,
+                        help="Number of parallel jobs (default: 4). Other options: -1 = use all cores, 1 = disable parallelism, any other number = number of cores to use)"
     )
 
     parser.add_argument("-p", "--prefix", default='', 

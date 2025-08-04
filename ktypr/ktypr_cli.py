@@ -46,6 +46,10 @@ def parse_args():
                         help="Reannotate genes using Prodigal, even if annotations are present in the GenBank file."
     )
 
+    parser.add_argument("-s", "--short", action="store_true",
+                        help="Flag to treat all input sequences as short and call genes with pyrodigal metagenomic mode."
+    )
+
     parser.add_argument("-c", "--clinker", action="store_true",
                         help="Produce clinker reports."
     )
@@ -75,8 +79,12 @@ def main():
         flanking=flanking_mode,
         flank=args.flank,
         reannotate=args.reannotate,
+        multi=False,           # Replace -m and use it for multiple KpsC annotation.
+        _rfbBDAC=False,
         parallel=parallel,
         n_jobs=args.n_jobs,
+        meta=args.short,
+        clinker=args.clinker,
         verbose=args.verbose
     )
 

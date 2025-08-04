@@ -66,22 +66,23 @@ ktypr -i <input_path>
 
 | Option               | Description                                                                                                                                                                                                                                                                |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-i`, `--input`      | **Input path**, which can be:<br>• A genome file (`.fasta`, `.gbk`, etc.)<br>• An annotation file (`.faa`)<br>• A directory containing such files<br>• A `.txt` file listing paths to input files. This is a required argument.                                            |
 | `-o`, `--output`     | **Output directory** where all results will be saved. Defaults to `./ktypr_results`. The directory will be created if it does not exist.                                                                                                                                   |
 | `-m`, `--mode`       | **Prediction mode**:<br>• `0` (default): *Flanking mode* — only genes located upstream and downstream of the **kpsC** gene, within a specified flanking window, are used for prediction.<br>• `1`: *Whole genome mode* — all annotated genes in the genome are considered. |
 | `-f`, `--flank`      | **Flanking window size** in base pairs around the **kpsC** gene to evaluate (default: `30000`). This option is ignored when using whole genome mode (`-m 1`).                                                                                                              |
 | `-n`, `--n-jobs`     | **Number of parallel jobs** to run:<br>• `-1` (default): use all available CPU cores.<br>• `1`: run sequentially without parallelism.<br>• Any other positive integer specifies the exact number of CPU cores to use.                                                      |
 | `-p`, `--prefix`     | **Optional prefix** to prepend to all output file names. If not provided, the base name of each input genome or annotation file will be used as the prefix.                                                                                                                |
-| `-i`, `--input`      | **Input path**, which can be:<br>• A genome file (`.fasta`, `.gbk`, etc.)<br>• An annotation file (`.faa`)<br>• A directory containing such files<br>• A `.txt` file listing paths to input files. This is a required argument.                                            |
+| `-s`, `--short`      | Flag to use metagenomic mode in prodigal gene calling in all input sequences. Recommended when short sequences are provided.                                                                                                                |
 | `-r`, `--reannotate` | Flag to **force re-annotation** of genes using Prodigal, even if annotations are already present in the genome file. Useful to ensure consistent annotations when needed.         
 | `-c`, `--clinker`    | Flag to produce [clinker](https://github.com/gamcil/clinker) reports. This can be computationally expensive, so it does not run by default.                                                                                                |
 | `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                                                                                                     |
-                                                                         |
 
 ### Genome annotation considerations
 
 Please note the following aspects:
 - kTYPr accepts annotated genomes (as `.faa` or `.gbk`), in this case, gene calling will not be run. Use `-r` to force the reannotation (only if genbank provided). 
 - We use [pyrodigal](https://github.com/althonos/pyrodigal) in `single` mode for gene annotation by default. This can raise errors when the sequence is not long enough for training a gene caller specific for the input genome (min. length is 20,000 bases). In these cases, `meta` mode will be activated by default; take into account this can produce less accurate gene sequences (shorter/longer than they should). 
+   - For a consistent gene calling, you can set `-s` to treat all provided sequences as short sequences and call genes with [pyrodigal](https://github.com/althonos/pyrodigal) metagenomic mode. 
 
 ---
 

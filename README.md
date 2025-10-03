@@ -100,6 +100,8 @@ Run in flanking mode using a text file of paths using a custom flanking size and
 ktypr -i genome_list.txt --flank 25000 -p ecoli_run
 ```
 
+The expected runtime for a single genome prediction should be less than 30 seconds on a typical desktop computer.
+
 ---
 
 ## 🗃 Output

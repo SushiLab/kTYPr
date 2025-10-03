@@ -24,7 +24,7 @@ To install in **editable/development mode** (so changes to the code apply immedi
 pip install -e .
 ```
 
-Note this installation can be done within an existing conda or venv environment.
+Note this installation can be done within an existing conda (slower, can take minutes) or venv environment (faster, seconds).
 
 ### Option 2 – Use a Conda environment (safer, isolated setup)
 

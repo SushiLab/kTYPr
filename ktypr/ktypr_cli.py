@@ -57,6 +57,14 @@ def parse_args():
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable verbose output for debugging purposes."
     )
+
+    parser.add_argument("-ko", "--keep_output", type=int, choices=[0, 1], default=1,
+                        help=(
+                            "Keep intermediate output files:\n"
+                            "  0 = do not keep intermediate files (recommended for large collections),\n"
+                            "  1 = keep intermediate files (default)"
+                        )
+    )
     
     return parser.parse_args()
 
@@ -85,7 +93,8 @@ def main():
         n_jobs=args.n_jobs,
         meta=args.short,
         clinker=args.clinker,
-        verbose=args.verbose
+        verbose=args.verbose,
+        keep_output=bool(args.keep_output)
     )
 
 if __name__ == "__main__":

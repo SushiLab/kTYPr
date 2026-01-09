@@ -190,7 +190,7 @@ def ktypr(inFile, outDir, prefix='',
           reannotate=False, multi=False, _rfbBDAC=False, 
           parallel=True, n_jobs=10, 
           meta=False, clinker=True, 
-          verbose=False):
+          verbose=False, keep_output=True):
     """
     Main function to run ktypr on one or multiple genomes.
 
@@ -224,6 +224,8 @@ def ktypr(inFile, outDir, prefix='',
         Runs a clinker analysis with the produced genbank against the predicted k-type.
     verbose : bool, default=False
         If True, prints progress and intermediate information to stdout.
+    keep_output : bool, default=True
+        If True, keeps intermediate output files. If False, removes them after processing.
 
     Output
     -----
@@ -296,5 +298,10 @@ def ktypr(inFile, outDir, prefix='',
     # Clinker collectively
     if clinker:
         ku.get_clinker(results, verbose=verbose)
-
-    return results
+        
+    # Cleanup intermediate files if needed
+    if keep_output:
+        return results
+    else:
+        ku.cleanup_intermediate_files(results, verbose=verbose)
+        results.clear()

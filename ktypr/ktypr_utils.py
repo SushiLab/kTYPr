@@ -466,3 +466,22 @@ def get_clinker(results, verbose=True):
                         print(f"Removed folder: {reference_dir}")
             except Exception as e:
                 print(f"Failed to remove folder {reference_dir}: {e}")
+
+def cleanup_intermediate_files(results, verbose=True):
+    """
+    Removes intermediate output files generated during processing.
+    """
+    if type(results) is list:
+        for res in results:
+            cleanup_intermediate_files(res, verbose=verbose)
+    elif type(results) is dict:
+        genome_dir = Path(results.get('outdir'))
+        print(f"Cleaning up intermediate files in {genome_dir}...")
+        # remove genome directory
+        if genome_dir.exists() and genome_dir.is_dir():
+            shutil.rmtree(genome_dir)
+            if verbose:
+                print(f"Removed genome directory: {genome_dir}")
+    else:
+        if verbose:
+            print("No intermediate files to clean up.")

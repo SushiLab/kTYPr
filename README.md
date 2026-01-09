@@ -35,6 +35,7 @@ git clone https://github.com/SushiLab/kTYPr.git
 cd kTYPr
 conda env create -f environment.yml
 conda activate ktypr_env
+pip install .
 ```
 
 This will create and activate a new environment named `ktypr_env` with all dependencies and install `ktypr` in editable mode.
@@ -75,7 +76,8 @@ ktypr -i <input_path>
 | `-s`, `--short`      | Flag to use metagenomic mode in prodigal gene calling in all input sequences. Recommended when short sequences are provided.                                                                                                                |
 | `-r`, `--reannotate` | Flag to **force re-annotation** of genes using Prodigal, even if annotations are already present in the genome file. Useful to ensure consistent annotations when needed.         
 | `-c`, `--clinker`    | Flag to produce [clinker](https://github.com/gamcil/clinker) reports. This can be computationally expensive, so it does not run by default.                                                                                                |
-| `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                                                                                                     |
+| `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                             | `-ko`, `--keep_output`       | Keep intermediate output files: 0 = do not keep intermediate files (recommended for large collections), 1 = keep intermediate files (default)|                                                                        |
+
 
 ### Genome annotation considerations
 
@@ -94,10 +96,10 @@ Run K-type prediction for whole-genomes (`--mode 1`) on a folder containing `.fa
 ktypr -i ./test/genomes/fasta -o ./results/ --mode 1 -n -1 -c -v
 ```
 
-Run in flanking mode using a text file of paths using a custom flanking size and with a custom prefix to name all the files:
+Run in flanking mode using a text file of paths using a custom flanking size and with a custom prefix to name all the files. Do not keep single genome outputs, only the combined prediction files:
 
 ```bash
-ktypr -i genome_list.txt --flank 25000 -p ecoli_run
+ktypr -i genome_list.txt --flank 25000 -p ecoli_run -ko 0
 ```
 
 ---

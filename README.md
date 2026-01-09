@@ -76,7 +76,8 @@ ktypr -i <input_path>
 | `-s`, `--short`      | Flag to use metagenomic mode in prodigal gene calling in all input sequences. Recommended when short sequences are provided.                                                                                                                |
 | `-r`, `--reannotate` | Flag to **force re-annotation** of genes using Prodigal, even if annotations are already present in the genome file. Useful to ensure consistent annotations when needed.         
 | `-c`, `--clinker`    | Flag to produce [clinker](https://github.com/gamcil/clinker) reports. This can be computationally expensive, so it does not run by default.                                                                                                |
-| `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                             | `-ko`, `--keep_output`       | Keep intermediate output files: 0 = do not keep intermediate files (recommended for large collections), 1 = keep intermediate files (default)|                                                                        |
+| `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                             | 
+| `-ko`, `--keep_output`  | Keep intermediate output files: 0 = do not keep intermediate files (recommended for large collections), 1 = keep intermediate files (default) |
 
 
 ### Genome annotation considerations

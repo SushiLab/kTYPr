@@ -24,7 +24,7 @@ To install in **editable/development mode** (so changes to the code apply immedi
 pip install -e .
 ```
 
-Note this installation can be done within an existing conda or venv environment.
+Note this installation can be done within an existing conda (slower, can take minutes) or venv environment (faster, seconds).
 
 ### Option 2 – Use a Conda environment (safer, isolated setup)
 
@@ -101,6 +101,8 @@ Run in flanking mode using a text file of paths using a custom flanking size and
 ```bash
 ktypr -i genome_list.txt --flank 25000 -p ecoli_run -ko 0
 ```
+
+The expected runtime for a single genome prediction should be less than 30 seconds on a typical desktop computer.
 
 ---
 

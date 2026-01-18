@@ -406,8 +406,63 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
             print(f"No genbank produced for {result_dict['genome_path']}. No KpsC found, try in whole-genome mode.")
 
 
-# CLINKER 
+# CLINKER
 
+def streamline_gbk(input_file, output_file, extend=100):
+    """
+    Streamlines a GenBank file to include only CDS features with flanking regions.
+    Args:
+        input_file (str): Path to the input GenBank file.
+        extend (int): Number of bases to extend upstream and downstream of CDS features.
+    """
+
+    # Load the GenBank record (assuming 1 record)
+    record = SeqIO.read(input_file, "genbank")
+
+    # Get all CDS coordinates
+    cds_features = [f for f in record.features if f.type == "CDS"]
+    starts = [int(f.location.start) for f in cds_features]
+    ends = [int(f.location.end) for f in cds_features]
+
+    # Determine new subsequence coordinates
+    new_start = max(0, min(starts) - extend)
+    new_end = min(len(record.seq), max(ends) + extend)
+
+    # Subset the sequence
+    sub_seq = record.seq[new_start:new_end]
+
+    # Adjust CDS features and store original coordinates
+    new_features = []
+    for f in cds_features:
+        # Save original coordinates
+        orig_coords = f"{int(f.location.start)}-{int(f.location.end)}"
+
+        # Adjust coordinates relative to new subsequence
+        new_feature_start = f.location.start - new_start
+        new_feature_end = f.location.end - new_start
+        new_location = FeatureLocation(new_feature_start, new_feature_end, strand=f.location.strand)
+
+        # Copy qualifiers and add custom label
+        qualifiers = dict(f.qualifiers)  # make a copy
+        qualifiers["orig_coords"] = orig_coords
+
+        # Create new feature
+        new_f = SeqFeature(location=new_location, type=f.type, qualifiers=qualifiers)
+        new_features.append(new_f)
+
+    # Create new record with annotations
+    new_record = SeqRecord(
+        sub_seq,
+        id=record.id,
+        name=record.name,
+        description=f"{record.description} (subset {new_start}-{new_end})",
+        annotations=record.annotations  # copy existing annotations
+    )
+    new_record.features = new_features
+
+    # Save to GenBank
+    SeqIO.write(new_record, output_file, "genbank")
+    
 def get_clinker(results, verbose=True):
     """
     Extract specific K-antigen clusters from a zipped archive of GenBanks,
@@ -448,8 +503,13 @@ def get_clinker(results, verbose=True):
             if verbose:
                 print(f'Running clinker on {original_gbk}')
 
-            # Copy and run clinker
-            shutil.copy(original_gbk, reference_dir)
+            # Copy the streamlined cluster
+            # shutil.copy(original_gbk, reference_dir)
+            streamline_gbk(original_gbk, f"{reference_dir}/{original_gbk.split('/')[-1].replace('.gbk', '_cluster.gbk')}", extend=100)
+
+            print(glob.glob(f'{reference_dir}/*.gbk'))
+
+            # run clinker
             cmd = f'clinker {reference_dir}/*.gbk -p {res["clinker"]}'
 
             if verbose:
@@ -476,7 +536,8 @@ def cleanup_intermediate_files(results, verbose=True):
             cleanup_intermediate_files(res, verbose=verbose)
     elif type(results) is dict:
         genome_dir = Path(results.get('outdir'))
-        print(f"Cleaning up intermediate files in {genome_dir}...")
+        if verbose:
+            print(f"Cleaning up intermediate files in {genome_dir}...")
         # remove genome directory
         if genome_dir.exists() and genome_dir.is_dir():
             shutil.rmtree(genome_dir)

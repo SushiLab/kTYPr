@@ -15,9 +15,7 @@ protein_alphabet = Alphabet.amino()
 definition_path  = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512.tsv')
 cutoffs_path     = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
 kpsc_hmm_path    = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
-
-#definition_path = '/nfs/home/smiravet/KTYPS_DEV/data/kTYP_definitions_v241202.tsv'
-#cutoffs_path = '/nfs/home/smiravet/KTYPS_DEV/data/hmm_cutoffs_v241201.tsv'
+HMM_BITSCORE_MAX = os.path.join(SCRIPT_DIR, 'data', 'max_bitscores_v20260107.tsv')
 
 ### I/O
 
@@ -38,6 +36,18 @@ def load_k_assignments(inFile=definition_path):
             assignments[line[0]] = line[1:]
     return assignments
 
+def load_hmm_bitscore_max(inFile=HMM_BITSCORE_MAX):
+    """
+    Given a text file <inFile> in tsv format including the maximum bitscore per K-type:
+    K1\tmax_bitscore\n
+    K2\tmax_bitscore\n
+    """
+    bitscore_max = {}
+    with open(inFile, 'r') as fi:
+        for line in fi:
+            k, v = line.strip().split()
+            bitscore_max[k] = float(v)
+    return bitscore_max
 
 def get_ktypes_dicts(inFile=definition_path):
 
@@ -130,7 +140,7 @@ def filter_max_bitscore(df, group_by='subject', by='bitscore'):
     return filtered_df
 
 
-def calculate_hits_and_bitscores(df, subject_to_ktypes, ktype_gene_counts, _rfbBDAC=False):
+def calculate_hits_and_bitscores(df, subject_to_ktypes, ktype_gene_counts, max_bitscore_dict, _rfbBDAC=False):
     """
     Example:
     subject_to_ktypes = {'K1a': ['K1', 'K2'], 'K1b': ['K1'], 'K2a': ['K2'], 'RfbB':['K1']}
@@ -155,14 +165,19 @@ def calculate_hits_and_bitscores(df, subject_to_ktypes, ktype_gene_counts, _rfbB
         subject, bitscore = row['subject'], row['bitscore']
         for ktype in subject_to_ktypes[subject]:
             if ktype not in rs:
-                rs[ktype] = [ktype_gene_counts[ktype], 0, 0, 0]   # Start the results counter
+                rs[ktype] = [ktype_gene_counts[ktype], 0, 0, 0, 0]   # Start the results counter order: key=K, genes in cluster, counted genes, bitscore, frac_bitscore, complete
             # Update hit count and bitscore for the corresponding ktype
-            rs[ktype][1] += 1   # Add gene to count of gene, rfb genes should count for completeness but not for bitscore 
+            rs[ktype][1] += 1   # Count of gene, rfb genes should count for completeness but not for bitscore 
             if _rfbBDAC:
                 rs[ktype][2] += bitscore  # Add up bitscore independently on the hit
             else:
                 if subject not in {'RfbB', 'RfbD', 'RfbA', 'RfbC'}:
                     rs[ktype][2] += bitscore   # Add up only if no Rfb gene (still count them for the ktype number of genes, but the bitscore doesn't)
+    
+    # Add normalized bitscore fraction
+    for k, v in rs.items():
+        v[3] = (v[2]/max_bitscore_dict[k])*100  # Fraction of bitscore   
+    
     # Add complete
     for k, v in rs.items():
         if v[1] >= v[0]:
@@ -257,10 +272,10 @@ def get_ktypr_columns_and_order(assignments):
     avail_ktyp = sorted(set(assignments) - set(avail_cons))
     
     # Define common suffixes for each column
-    suffixes = ['_nr_genes', '_genes_in_genome', '_acc_bitscore', '_is_complete']
+    suffixes = ['_nr_genes', '_genes_in_genome', '_acc_bitscore', '_frac_bitscore','_is_complete']
     
     # Construct columns list using comprehensions
-    columns = ['predicted', 'pred_nr_genes', 'pred_genes_in_genome', 'pred_acc_bitscore', 'pred_is_complete']
+    columns = ['genome_id', 'predicted', 'pred_nr_genes', 'pred_genes_in_genome', 'pred_acc_bitscore', 'pred_frac_bitscore', 'pred_is_complete']
     columns += [f"{cons}{suffix}" for cons in avail_cons for suffix in suffixes]
     columns += [f"{ktyp}{suffix}" for ktyp in avail_ktyp for suffix in suffixes]
     

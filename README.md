@@ -4,6 +4,28 @@
 
 ---
 
+## 📑 Index
+
+- [🧬 kTYPr](#-ktypr)
+- [📦 Installation](#-installation)
+  - [Option 1 – Install via pip](#option-1--install-via-pip-recommended-for-most-users)
+  - [Option 2 – Use a Conda environment](#option-2--use-a-conda-environment-safer-isolated-setup)
+- [🚀 Usage](#-usage)
+  - [Basic command](#basic-command)
+  - [Required arguments](#required-arguments)
+- [🔧 Options](#-options)
+  - [Genome annotation considerations](#genome-annotation-considerations)
+- [🧪 Example](#-example)
+- [🗃 Output](#-output)
+  - [Collection results](#collection-results)
+- [➕ Add custom K-types](#-add-custom-k-types)
+- [🐍 kTYPr as Python package](#-ktypr-as-python-package)
+- [🔎 BLAST-based approach](#-blast-based-approach)
+- [📖 Citation](#-citation)
+- [❓ Need Help?](#-need-help)
+
+---
+
 ## 📦 Installation
 
 ### Option 1 – Install via `pip` (recommended for most users)
@@ -56,7 +78,7 @@ ktypr --help
 ktypr -i <input_path> 
 ```
 
-### Required argument
+### Required arguments
 
 * `-i`, `--input`:
   Path to a single file (e.g., `.faa`, `.fna`, `.gbk`), a directory containing multiple annotation files, or a `.txt` file listing full paths (one per line) to the genome/annotation files.
@@ -75,7 +97,7 @@ ktypr -i <input_path>
 | `-p`, `--prefix`     | **Optional prefix** to prepend to all output file names. If not provided, the base name of each input genome or annotation file will be used as the prefix.                                                                                                                |
 | `-s`, `--short`      | Flag to use metagenomic mode in prodigal gene calling in all input sequences. Recommended when short sequences are provided.                                                                                                                |
 | `-r`, `--reannotate` | Flag to **force re-annotation** of genes using Prodigal, even if annotations are already present in the genome file. Useful to ensure consistent annotations when needed.         
-| `-c`, `--clinker`    | Flag to produce [clinker](https://github.com/gamcil/clinker) reports. This can be computationally expensive, so it does not run by default.                                                                                                |
+| `-c`, `--clinker`    | Flag to produce [clinker](https://github.com/gamcil/clinker) reports *ONLY available in FLANKING MODE when a K-type is assigned*. This can be computationally expensive, so it does not run by default.                                                                                                |
 | `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                             | 
 | `-ko`, `--keep_output`  | Keep intermediate output files: 0 = do not keep intermediate files (recommended for large collections), 1 = keep intermediate files (default) |
 
@@ -130,10 +152,12 @@ Columns description:
 
 | Column name            | Description                                                                                                           |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `genome_id`            | Genome identifier (extracted from the basename of the genome file).                                                   |
 | `predicted`            | **Best-matching K-type** predicted for the genome based on gene content and HMM match scores.                         |
 | `pred_nr_genes`        | Number of genes expected for the predicted K-type (based on its reference profile).                                   |
 | `pred_genes_in_genome` | Number of those expected genes actually found in the genome.                                                          |
 | `pred_acc_bitscore`    | Sum of HMM bitscores across all hits matching the predicted K-type. A proxy for overall match strength.               |
+| `pred_frac_bitscore`   | `pred_acc_bitscore` normalized by the maximum accumulated bitscore for that K-type in RefSeq profiled genomes.        |
 | `pred_is_complete`     | Indicates if all expected genes for the predicted K-type were found in the genome (`1` = complete, `0` = incomplete). |
 
 These are followed by conserved K-locus genes shared across many K-types, such as those in the KpsEDCSMT and KpsFU operons:
@@ -143,6 +167,7 @@ These are followed by conserved K-locus genes shared across many K-types, such a
 | `KpsEDCSMT_nr_genes`        | Number of conserved EDCSMT genes expected.                      |
 | `KpsEDCSMT_genes_in_genome` | Number of EDCSMT genes found in the genome.                     |
 | `KpsEDCSMT_acc_bitscore`    | Cumulative bitscore for the EDCSMT gene matches.                |
+| `KpsEDCSMT_frac_bitscore`   | `KpsEDCSMT_acc_bitscore` normalized by the maximum KpsEDCSMT bitscore in RefSeq profiled genomes|
 | `KpsEDCSMT_is_complete`     | Whether all EDCSMT genes were found (`1`) or not (`0`).         |
 | `KpsFU_nr_genes`, ...       | Same structure as above, but for the conserved **FU** gene set. |
 
@@ -153,6 +178,7 @@ For further exploration, and forF each known K-type in our database  the followi
 | `<KTYPE>_nr_genes`        | Number of genes expected for this K-type.                             |
 | `<KTYPE>_genes_in_genome` | Number of expected genes found in the genome.                         |
 | `<KTYPE>_acc_bitscore`    | Sum of HMM match bitscores for this K-type’s genes.                   |
+| `<KTYPE>_frac_bitscore`   | `<KTYPE>_acc_bitscore` normalized by the maximum accumulated bitscore for that K-type in RefSeq profiled genomes. |
 | `<KTYPE>_is_complete`     | Whether the K-type is fully present in the genome (`1`) or not (`0`). |
 
 As example of the collection output, you can find in [test/output](test/output) the results of running:
@@ -163,17 +189,68 @@ ktypr -i ./test/genomes/fasta -v -o ./test/output/ -p run1_
 
 ---
 
+## ➕ Add custom K-types
+
+To add new custom K-types, users can:
+1. Download this repository. 
+2. Produce HMMs as done in the main publication for each of the specific genes to detect and copy them in [data/hmms](data/hmms).
+3. Add a new line on [data/ktypr_definitions_v20250512.tsv](data/ktypr_definitions_v20250512.tsv) with the K-type name followed by the gene names (corresponding to HMM files) that composed them. 
+4. Add the cut-offs per HMM in [data/hmm_cutoffs_v20250704.tsv](data/hmm_cutoffs_v20250704.tsv). kTYPr employs curated internal thresholds to define a hit, if these are not know, you can set a 0 cut-off but these can increase false positive hits. 
+5. Add the maximum expected bitscore for the new K-type in [data/max_bitscores_v20260107.tsv](data/max_bitscores_v20260107.tsv) for the normalized bitscore in the output. If not known, simply include 1 as maximum (this will make the `<KTYPE>_frac_bitscore` to match `<KTYPE>_acc_bitscore`).
+
+---
+
+## 🐍 kTYPr as Python package
+
+Once installed, you can use kTYPr within your python environment as:
+
+```python
+from ktypr import ktypr
+
+# To show the arguments required:
+help(ktypr)
+```
+
+The arguments described above are shared by this function, for example, to call it in a genome/directory/list of files:
+
+```python
+ktypr(<genome_path>, <output_directory>)
+```
+
+---
+
+## 🔎 BLAST-based approach
+
+The collection of best genomes associated to a specific K-type can be employed as database for [Kaptive](https://kaptive.readthedocs.io/en/latest/) as done in [EC-K-typing](https://github.com/rgladstone/EC-K-typing) by [Gladstone et. al](https://doi.org/10.1101/2024.11.22.24317484). 
+
+For this, you can simply download [this multi-genbank](kaptive_db/KapsDB_for_Kaptive.gbk) and use it as:
+
+```bash
+kaptive assembly KapsDB_for_Kaptive.gbk <your_genomes> -o output.tsv
+```
+
+---
+
 ## 📖 Citation
 If you use kTYPr in your research, please cite:
 
-Roese. et al. XXXXX. Journal (2025). LINK
+- [Preprint](https://www.biorxiv.org/content/10.1101/2025.08.07.669119v2.abstract)
 
 ---
 
 ## ❓ Need Help?
 
+In the terminal:
+
 ```bash
 ktypr --help
 ```
 
-or contact the maintainer at *[smiravet@ethz.ch](mailto:smiravet@ethz.ch)*
+In python:
+
+```python
+from ktypr import ktypr
+help(ktypr)
+```
+
+You can always write an issue in this repo or contact the maintainer at *[smiravet@ethz.ch](mailto:smiravet@ethz.ch)*

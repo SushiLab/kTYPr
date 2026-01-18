@@ -9,12 +9,13 @@ from joblib import Parallel, delayed
 from datetime import datetime
 
 ### GLOBAL VARIABLES
-SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
-hmms_path        = os.path.join(SCRIPT_DIR, 'data', 'hmms', '*.hmm')
-kpsc_hmm_path    = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
-definition_path  = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512.tsv')
-cutoffs_path     = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
-thrs_dict        = kh.load_bitscore_thrs(cutoffs_path)
+SCRIPT_DIR        = os.path.dirname(os.path.abspath(__file__))
+hmms_path         = os.path.join(SCRIPT_DIR, 'data', 'hmms', '*.hmm')
+kpsc_hmm_path     = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
+definition_path   = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512.tsv')
+cutoffs_path      = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
+thrs_dict         = kh.load_bitscore_thrs(cutoffs_path)
+max_bitscore_dict = kh.load_hmm_bitscore_max()    # Path to the file defined as default in the function
 
 # Load definitions and report info
 ktype_dict, subject_to_ktypes, ktype_gene_counts = kh.get_ktypes_dicts(definition_path)
@@ -51,18 +52,20 @@ def _profile_genome_core(faa_path,
         max_hits.to_csv(result_dict['filt_hits'], sep='\t', compression='gzip')  # Save filtered hits
 
         # Count hits per ktype
-        hits = kh.calculate_hits_and_bitscores(max_hits, subject_to_ktypes, ktype_gene_counts, _rfbBDAC)
+        hits = kh.calculate_hits_and_bitscores(df=max_hits, subject_to_ktypes=subject_to_ktypes, 
+                                               ktype_gene_counts=ktype_gene_counts, max_bitscore_dict=max_bitscore_dict,
+                                               _rfbBDAC=False)
 
         # Get best prediction
         best = kh.get_best_k({k: v for k, v in hits.items() if k not in conserved})
 
     # Store predicted best result
-    hits['pred'] = hits.get(best, [0, 0, 0, 0])
+    hits['pred'] = hits.get(best, [0, 0, 0, 0, 0])
 
     # Store output
     results = [result_dict['ide'], best] + hits['pred']
     for k in korder:
-        results += hits.get(k, [ktype_gene_counts[k], 0, 0, 0])
+        results += hits.get(k, [ktype_gene_counts[k], 0, 0, 0, 0])
 
     with open(result_dict['classification'], 'w') as fo:
         fo.write('\t'.join(kanalysis_columns) + '\n')
@@ -296,7 +299,7 @@ def ktypr(inFile, outDir, prefix='',
                      )   
 
     # Clinker collectively
-    if clinker:
+    if clinker and flanking:
         ku.get_clinker(results, verbose=verbose)
         
     # Cleanup intermediate files if needed

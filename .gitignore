@@ -414,3 +414,4 @@ buildNumber.properties
 ktypr/data/reference_clusters/
 testing.ipynb
 test/output/run1_GCF_*_genomic/*_clink.html
+results/GCF*

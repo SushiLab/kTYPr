@@ -113,16 +113,16 @@ Please note the following aspects:
 
 ## 🧪 Example
 
-Run K-type prediction for whole-genomes (`--mode 1`) on a folder containing `.fa` files using all available cores (`-n -1`) and producing clinker reports (`-c`), saving results to a custom folder (`-o results/`) and printing in the terminal the running processes (`-v`):
+Run K-type prediction in flanking mode on a folder containing `.fa` files using all available cores (`-n -1`) and producing clinker reports (`-c`), saving results to a custom folder (`-o results/`) and printing in the terminal the running processes (`-v`):
 
 ```bash
-ktypr -i ./test/genomes/fasta -o ./results/ --mode 1 -n -1 -c -v
+ktypr -i ./test/genomes/fasta -o ./results/ -n -1 -c -v
 ```
 
-Run in flanking mode using a text file of paths using a custom flanking size and with a custom prefix to name all the files. Do not keep single genome outputs, only the combined prediction files:
+Run in whole-genome mode (`--mode 1`) using a text file of paths using a custom flanking size and with a custom prefix to name all the files. Do not keep single genome outputs, only the combined prediction files:
 
 ```bash
-ktypr -i genome_list.txt --flank 25000 -p ecoli_run -ko 0
+ktypr -i genome_list.txt --flank 25000 -p ecoli_run -ko 0 --mode 1
 ```
 
 The expected runtime for a single genome prediction should be less than 30 seconds on a typical desktop computer.
@@ -223,10 +223,10 @@ ktypr(<genome_path>, <output_directory>)
 
 The collection of best genomes associated to a specific K-type can be employed as database for [Kaptive](https://kaptive.readthedocs.io/en/latest/) as done in [EC-K-typing](https://github.com/rgladstone/EC-K-typing) by [Gladstone et. al](https://doi.org/10.1101/2024.11.22.24317484). 
 
-For this, you can simply download [this multi-genbank](kaptive_db/KapsDB_for_Kaptive.gbk) and use it as:
+For this, you can simply download [this multi-genbank](kaptive_db/kTYPrDB_for_Kaptive.gbk) and use it as:
 
 ```bash
-kaptive assembly KapsDB_for_Kaptive.gbk <your_genomes> -o output.tsv
+kaptive assembly kTYPrDB_for_Kaptive.gbk <your_genomes> -o output.tsv
 ```
 
 ---

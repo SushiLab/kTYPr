@@ -480,34 +480,37 @@ def get_clinker(results, verbose=True):
 
     # Extract sequentially
     archive_path = f"{SCRIPT_DIR}/data/reference_clusters.zip"
-    with zipfile.ZipFile(archive_path, 'r') as zipf:
+
+    with zipfile.ZipFile(archive_path, "r") as zipf:
+        names = zipf.namelist()
         for res in results:
-            ks = res['ktype']
-            out_dir = res['outdir']
+            ks = res["ktype"]
+            reference_dir = Path(res["outdir"]) / "reference_clusters"
+            reference_dir.mkdir(parents=True, exist_ok=True)
+            matched = [n for n in names if f"{ks}_" in n]
 
-            # Ensure the output directory exists
-            os.makedirs(out_dir, exist_ok=True)
+            if not matched and verbose:
+                print(f"[WARN] No reference clusters found for {ks}")
 
-            # Find matching files and extract
-            matched = [file for file in zipf.namelist() if f'{ks}_' in file]
-            for file in matched:
-                zipf.extract(file, path=out_dir)
+            for name in matched:
+                target = reference_dir / Path(name).name
+                with zipf.open(name) as src, open(target, "wb") as dst:
+                    dst.write(src.read())
                 if verbose:
-                    print(f"Extracted: {file} to {out_dir}")
+                    print(f"Extracted: {name} -> {target}")
     
     # Run the html production with clinker
     for res in results:
-        original_gbk  = res['gbk_path']
-        reference_dir = Path(res['outdir']) / "reference_clusters"
-        if res['gff_path']:
+        reference_dir = Path(res["outdir"]) / "reference_clusters"
+        original_gbk = Path(res["gbk_path"])
+
+        if res.get("gff_path"):
             if verbose:
-                print(f'Running clinker on {original_gbk}')
+                print(f"Running clinker on {original_gbk}")
+            out_gbk = reference_dir / original_gbk.name.replace(".gbk", "_cluster.gbk")
+            streamline_gbk(original_gbk, out_gbk, extend=100)
 
-            # Copy the streamlined cluster
-            # shutil.copy(original_gbk, reference_dir)
-            streamline_gbk(original_gbk, f"{reference_dir}/{original_gbk.split('/')[-1].replace('.gbk', '_cluster.gbk')}", extend=100)
-
-            print(glob.glob(f'{reference_dir}/*.gbk'))
+            gbks = list(reference_dir.glob("*.gbk"))
 
             # run clinker
             cmd = f'clinker {reference_dir}/*.gbk -p {res["clinker"]}'
@@ -525,7 +528,9 @@ def get_clinker(results, verbose=True):
                     if verbose:
                         print(f"Removed folder: {reference_dir}")
             except Exception as e:
-                print(f"Failed to remove folder {reference_dir}: {e}")
+                if verbose:
+                    print(f"Failed to remove folder {reference_dir}: {e}")
+
 
 def cleanup_intermediate_files(results, verbose=True):
     """

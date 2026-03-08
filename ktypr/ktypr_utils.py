@@ -371,14 +371,38 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
                 for k, v in genome.items()
             }
 
-            # Parse GFF and build features
+            # Parse GFF once to store features and find hit boundaries per seqid
+            gff_features = []
+            seqid_bounds = {}
+
             for seqid, source, type_, start, end, strand, attr in parse_gff(result_dict['gff_path']):
                 if id_attribute not in attr:
                     continue
                 feature_id = attr[id_attribute]
                 if not isinstance(feature_id, str):
                     continue
-                if feature_id not in selected_ids or seqid not in record_dict:
+                
+                # Store the feature for the second pass
+                gff_features.append((seqid, source, type_, start, end, strand, attr, feature_id))
+
+                # Track boundaries if it's a hit
+                if feature_id in selected_ids:
+                    if seqid not in seqid_bounds:
+                        seqid_bounds[seqid] = {"min_start": start, "max_end": end}
+                    else:
+                        seqid_bounds[seqid]["min_start"] = min(seqid_bounds[seqid]["min_start"], start)
+                        seqid_bounds[seqid]["max_end"] = max(seqid_bounds[seqid]["max_end"], end)
+
+            # Iterate stored features and add them if they fall within the bounds
+            for seqid, source, type_, start, end, strand, attr, feature_id in gff_features:
+                if seqid not in record_dict or seqid not in seqid_bounds:
+                    continue
+
+                bounds = seqid_bounds[seqid]
+                
+                # Check if feature is outside the bounded hit region for this contig
+                # (Keeps features if they have any overlap with the bounded region)
+                if end < bounds["min_start"] or start > bounds["max_end"]:
                     continue
 
                 location = FeatureLocation(start - 1, end, strand=1 if strand == "+" else -1)
@@ -388,10 +412,18 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
                 if feature_id in translation_dict:
                     qualifiers["translation"] = [translation_dict[feature_id]]
 
-                # Add /gene, /locus_tag, /protein_id if available
-                if feature_id in hits_dict:
-                    for key in ["gene", "locus_tag", "protein_id"]:
-                        qualifiers[key] = [hits_dict[feature_id]]
+                # Check if it's an HMM hit or an intermediate gene
+                if feature_id in selected_ids:
+                    # Add /gene, /locus_tag, /protein_id if available
+                    if feature_id in hits_dict:
+                        for key in ["gene", "locus_tag", "protein_id"]:
+                            qualifiers[key] = [hits_dict[feature_id]]
+                else:
+                    # Intermediate gene with no hit
+                    if "note" in qualifiers:
+                        qualifiers["note"].append("no_HMM_hit")
+                    else:
+                        qualifiers["note"] = ["no_HMM_hit"]
 
                 feature = SeqFeature(location=location, type=type_, qualifiers=qualifiers)
                 record_dict[seqid].features.append(feature)
@@ -411,16 +443,32 @@ def create_genbank_from_inputs(result_dict, id_attribute="ID", from_annotations=
 def streamline_gbk(input_file, output_file, extend=100):
     """
     Streamlines a GenBank file to include only CDS features with flanking regions.
+    If multiple records are present, it selects the record with the most features.
+    
     Args:
         input_file (str): Path to the input GenBank file.
+        output_file (str): Path to save the streamlined GenBank file.
         extend (int): Number of bases to extend upstream and downstream of CDS features.
     """
 
-    # Load the GenBank record (assuming 1 record)
-    record = SeqIO.read(input_file, "genbank")
+    # 1. Parse all records instead of reading just one
+    records = list(SeqIO.parse(input_file, "genbank"))
+    
+    if not records:
+        print(f"Warning: No records found in {input_file}.")
+        return
+
+    # 2. Select the record with the highest number of features
+    record = max(records, key=lambda r: len(r.features))
 
     # Get all CDS coordinates
     cds_features = [f for f in record.features if f.type == "CDS"]
+    
+    # 3. Safety check: ensure we actually have CDS features before calculating bounds
+    if not cds_features:
+        print(f"Warning: No CDS features found in the selected record of {input_file}.")
+        return
+
     starts = [int(f.location.start) for f in cds_features]
     ends = [int(f.location.end) for f in cds_features]
 
@@ -487,7 +535,7 @@ def get_clinker(results, verbose=True):
             ks = res["ktype"]
             reference_dir = Path(res["outdir"]) / "reference_clusters"
             reference_dir.mkdir(parents=True, exist_ok=True)
-            matched = [n for n in names if f"{ks}_" in n]
+            matched = [n for n in names if f"{ks}_" in n or f"{ks}.gbk" in n]
 
             if not matched and verbose:
                 print(f"[WARN] No reference clusters found for {ks}")

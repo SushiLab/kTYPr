@@ -100,8 +100,8 @@ ktypr -i <input_path>
 | `-c`, `--clinker`    | Flag to produce [clinker](https://github.com/gamcil/clinker) reports *ONLY available in FLANKING MODE when a K-type is assigned*. This can be computationally expensive, so it does not run by default.                                                                                                |
 | `-v`, `--verbose`    | Enable **verbose mode** for detailed logging and debugging information during the run.                                                                                                             | 
 | `-ko`, `--keep_output`  | Keep intermediate output files: 0 = do not keep intermediate files (recommended for large collections), 1 = keep intermediate files (default) |
-
-
+| `-ic`, `--ignore_cutoffs`  | Ignore cutoffs for HMM prediction. Use with caution, as this may lead to more false positives. This option is not recommended unless you have a specific reason to ignore cutoffs. |
+    
 ### Genome annotation considerations
 
 Please note the following aspects:
@@ -141,8 +141,10 @@ For each input genome, kTYPr creates in a folder per genome:
 | `_hits.tsv.gz`          | Compressed TSV file listing all detected HMM hits (annotations) with their scores and locations.          |
 | `_filtered_hits.tsv.gz` | Compressed TSV file with filtered HMM hits after applying score thresholds.                               |
 | `_ktypr.tsv`            | Summary TSV file containing the final K-antigen type prediction results for the genome or annotation set. |
-| `.gbk`                  | Full genome file with annotations in GenBank format, optionally including re-annotation results.          |
+| `.gbk`                  | GenBank including cluster annotation results. Note that genes within the cluster but with no HMM hit include a descriptor /note="no_HMM_hit".           |
 | `clink.html`            | [Clinker](https://github.com/gamcil/clinker) HTML report against the best K-antigen type predicted.        |
+
+> **_NOTE:_** genes within the cluster but with no HMM hit include a descriptor /note="no_HMM_hit" in the genbank and they are also used in the clinker comparative. This can help identifying novel K-type structures. 
 
 ### Collection results
 
@@ -197,6 +199,7 @@ To add new custom K-types, users can:
 3. Add a new line on [data/ktypr_definitions_v20250512.tsv](data/ktypr_definitions_v20250512.tsv) with the K-type name followed by the gene names (corresponding to HMM files) that composed them. 
 4. Add the cut-offs per HMM in [data/hmm_cutoffs_v20250704.tsv](data/hmm_cutoffs_v20250704.tsv). kTYPr employs curated internal thresholds to define a hit, if these are not know, you can set a 0 cut-off but these can increase false positive hits. 
 5. Add the maximum expected bitscore for the new K-type in [data/max_bitscores_v20260107.tsv](data/max_bitscores_v20260107.tsv) for the normalized bitscore in the output. If not known, simply include 1 as maximum (this will make the `<KTYPE>_frac_bitscore` to match `<KTYPE>_acc_bitscore`).
+6. Optional: define a reference cluster genbank file for that K-type and include in [data/reference_clusters.zip](data/reference_clusters.zip)
 
 ---
 

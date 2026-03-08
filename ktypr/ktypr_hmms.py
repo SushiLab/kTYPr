@@ -12,10 +12,10 @@ from pyhmmer.easel import SequenceFile, Alphabet
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 protein_alphabet = Alphabet.amino()
-definition_path  = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512.tsv')
-cutoffs_path     = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
+definition_path  = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20260308.tsv')
+cutoffs_path     = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20260308.tsv')
 kpsc_hmm_path    = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
-HMM_BITSCORE_MAX = os.path.join(SCRIPT_DIR, 'data', 'max_bitscores_v20260107.tsv')
+HMM_BITSCORE_MAX = os.path.join(SCRIPT_DIR, 'data', 'max_bitscores_v20260308.tsv')
 
 ### I/O
 
@@ -200,7 +200,7 @@ def get_best_k(ktype_analysis, not_found_default='No K-type assigned'):
     # Use max with a custom key to find the best ktype
     best_ktype, _ = max(
         ktype_analysis.items(),
-        key=lambda item: (item[1][3], item[1][2]),  # Prioritize by completeness (index 3), then bitscore (index 2)
+        key=lambda item: (item[1][4], item[1][2]),  # Prioritize by completeness (index 4), then bitscore (index 2)
         default=(not_found_default, None)  # Handle empty input gracefully
     )
     return best_ktype

@@ -12,8 +12,8 @@ from datetime import datetime
 SCRIPT_DIR        = os.path.dirname(os.path.abspath(__file__))
 hmms_path         = os.path.join(SCRIPT_DIR, 'data', 'hmms', '*.hmm')
 kpsc_hmm_path     = os.path.join(SCRIPT_DIR, 'data', 'hmms', 'KpsC.hmm')
-definition_path   = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20250512.tsv')
-cutoffs_path      = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20250704.tsv')
+definition_path   = os.path.join(SCRIPT_DIR, 'data', 'ktypr_definitions_v20260308.tsv')
+cutoffs_path      = os.path.join(SCRIPT_DIR, 'data', 'hmm_cutoffs_v20260308.tsv')
 thrs_dict         = kh.load_bitscore_thrs(cutoffs_path)
 max_bitscore_dict = kh.load_hmm_bitscore_max()    # Path to the file defined as default in the function
 
@@ -31,7 +31,8 @@ def _profile_genome_core(faa_path,
                          append,
                          _rfbBDAC,
                          classification_label='',
-                         skip_hits=False):
+                         skip_hits=False, 
+                         ignore_cutoffs=False):
     """
     Core function to run HMM search, process hits, and write classification.
     """
@@ -45,6 +46,11 @@ def _profile_genome_core(faa_path,
         hits_df.to_csv(result_dict['hits'], sep='\t', compression='gzip')  # Save all hits
 
         # Filter by bitscore, group by unique subject hit and produce the dictionary with K-type info
+        
+        if ignore_cutoffs:
+            print("WARNING: Ignoring bitscore cutoffs for HMM prediction. This may lead to more false positives. Use with caution.")
+            thrs = {k: 0 for k in thrs}  # Set all thresholds to 0 to effectively ignore them
+
         filtered_hits = kh.apply_bitscore_thresholds(hits_df, thrs)
         max_hits = kh.filter_max_bitscore(filtered_hits)
         
@@ -87,7 +93,8 @@ def profile_genome_from_aa_annotations(result_dict,
                                        thrs=thrs_dict, 
                                        conserved=['KpsEDCSMT', 'KpsFU'], 
                                        append=None,
-                                       _rfbBDAC=True):
+                                       _rfbBDAC=True, 
+                                       ignore_cutoffs=False):
     """
     Runs the default pipeline given a fasta aa file.
     """
@@ -97,7 +104,8 @@ def profile_genome_from_aa_annotations(result_dict,
                                 thrs,
                                 conserved,
                                 append,
-                                _rfbBDAC)
+                                _rfbBDAC,
+                                ignore_cutoffs=ignore_cutoffs)
 
 
 def profile_genome_from_aa_annotations_flanking(result_dict, 
@@ -108,7 +116,8 @@ def profile_genome_from_aa_annotations_flanking(result_dict,
                                                 conserved=['KpsEDCSMT', 'KpsFU'], 
                                                 append=None,
                                                 _multi_kps=False, 
-                                                _rfbBDAC=False):
+                                                _rfbBDAC=False,
+                                                ignore_cutoffs=False):
     """
     Runs the default pipeline only for annotations flanking the KpsC gene.
     """
@@ -125,7 +134,8 @@ def profile_genome_from_aa_annotations_flanking(result_dict,
                                     thrs,
                                     conserved,
                                     append,
-                                    _rfbBDAC)
+                                    _rfbBDAC,
+                                    ignore_cutoffs=ignore_cutoffs)
     else:
         return _profile_genome_core(result_dict['faa_path'],
                                     result_dict,
@@ -135,13 +145,15 @@ def profile_genome_from_aa_annotations_flanking(result_dict,
                                     append,
                                     _rfbBDAC,
                                     classification_label='No KpsC identified',
-                                    skip_hits=True)
+                                    skip_hits=True, 
+                                    ignore_cutoffs=ignore_cutoffs
+                                    )
 
 
 def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=True, 
                          reannotate=False, meta=False, flanking=False, flank=30000,
                          multi=False, _rfbBDAC=False, append_fil=None, clinker=True, 
-                         verbose=True):
+                         verbose=True, ignore_cutoffs=False):
     """
     Annotates a genome or annotation file and profiles it for K-type prediction.
     """    
@@ -163,7 +175,8 @@ def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=Tru
             flank=flank,
             append=append_fil,
             _multi_kps=multi,
-            _rfbBDAC=_rfbBDAC
+            _rfbBDAC=_rfbBDAC, 
+            ignore_cutoffs=ignore_cutoffs
         )
     else:
         result['faa_flank_path'] = None
@@ -172,7 +185,8 @@ def annotate_and_profile(genome_path, outDir, prefix='', extract_annotations=Tru
         profile_genome_from_aa_annotations(
             result_dict=result,
             append=append_fil,
-            _rfbBDAC=_rfbBDAC
+            _rfbBDAC=_rfbBDAC,
+            ignore_cutoffs=ignore_cutoffs
         )
 
     # Report genbank and clinker
@@ -193,7 +207,7 @@ def ktypr(inFile, outDir, prefix='',
           reannotate=False, multi=False, _rfbBDAC=False, 
           parallel=True, n_jobs=10, 
           meta=False, clinker=True, 
-          verbose=False, keep_output=True):
+          verbose=False, keep_output=True, ignore_cutoffs=False):
     """
     Main function to run ktypr on one or multiple genomes.
 
@@ -229,6 +243,8 @@ def ktypr(inFile, outDir, prefix='',
         If True, prints progress and intermediate information to stdout.
     keep_output : bool, default=True
         If True, keeps intermediate output files. If False, removes them after processing.
+    ignore_cutoffs : bool, default=False
+        If True, ignores cutoffs for HMM prediction. Use with caution, as this may lead to more false positives.
 
     Output
     -----
@@ -260,7 +276,6 @@ def ktypr(inFile, outDir, prefix='',
     else:
         append_fil = None
 
-
     # Annotate and profile each genome
     if parallel and n_jobs!=1:
         results = Parallel(n_jobs=n_jobs, backend="multiprocessing")(
@@ -276,14 +291,16 @@ def ktypr(inFile, outDir, prefix='',
                           multi=multi,
                           _rfbBDAC=_rfbBDAC,
                           append_fil=append_fil,
-                          verbose=verbose
+                          verbose=verbose, 
+                          ignore_cutoffs=ignore_cutoffs
                               ) for genome_path in input_paths
                       )
     else:
         # This is only when no parallel or n_jobs=1
         # Not really needed, but should be faster than n_jobs=1 as it skips joblib overhead
+        results = []
         for genome_path in input_paths:
-            results = annotate_and_profile(
+            res = annotate_and_profile(
                           genome_path=genome_path,
                           outDir=outDir,
                           prefix=prefix,
@@ -295,8 +312,10 @@ def ktypr(inFile, outDir, prefix='',
                           multi=multi,
                           _rfbBDAC=_rfbBDAC,
                           append_fil=append_fil,
-                          verbose=verbose
+                          verbose=verbose,
+                          ignore_cutoffs=ignore_cutoffs
                      )   
+        results.append(res)
 
     # Clinker collectively
     if clinker and flanking:

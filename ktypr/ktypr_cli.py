@@ -26,14 +26,6 @@ def parse_args():
                         help="Flanking window size in base pairs to extract and only evaluate genes around kpsC (default: 30000). This is not considered when using whole-genome mode."
     )
 
-    # parser.add_argument("-f", "--flank", nargs='?', const=30000, type=int, default=None,
-    #                     help=(
-    #                         "Flanking window size in base pairs to extract and evaluate genes around kpsC.\n"
-    #                         "   Use -f to enable with default size (30000), or -f <N> to specify a custom size.\n"
-    #                         "Ignored in whole-genome mode."
-    #                     )
-    # )    # This could be used to get rid of -m
-
     parser.add_argument("-n", "--n-jobs", type=int, default=4,
                         help="Number of parallel jobs (default: 4). Other options: -1 = use all cores, 1 = disable parallelism, any other number = number of cores to use)"
     )
@@ -65,6 +57,10 @@ def parse_args():
                             "  1 = keep intermediate files (default)"
                         )
     )
+
+    parser.add_argument("-ic", "--ignore_cutoffs", action="store_true",
+                        help="Ignore cutoffs for HMM prediction. Use with caution, as this may lead to more false positives. This option is not recommended unless you have a specific reason to ignore cutoffs."
+    )
     
     return parser.parse_args()
 
@@ -94,7 +90,8 @@ def main():
         meta=args.short,
         clinker=args.clinker,
         verbose=args.verbose,
-        keep_output=bool(args.keep_output)
+        keep_output=bool(args.keep_output),
+        ignore_cutoffs=args.ignore_cutoffs
     )
 
 if __name__ == "__main__":

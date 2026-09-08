@@ -237,7 +237,7 @@ kaptive assembly kTYPrDB_for_Kaptive.gbk <your_genomes> -o output.tsv
 ## 📖 Citation
 If you use kTYPr in your research, please cite:
 
-- [Preprint](https://www.biorxiv.org/content/10.1101/2025.08.07.669119v2.abstract)
+- Miravet-Verde, S., Cacace, E., Mores, C.R. et al. In silico typing maps the natural diversity of Escherichia coli transporter-dependent capsules. Nat Microbiol 11, 1217–1232 (2026). https://doi.org/10.1038/s41564-026-02323-5
 
 ---
 
